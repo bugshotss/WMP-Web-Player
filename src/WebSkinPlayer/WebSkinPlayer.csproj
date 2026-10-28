@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>WebSkinPlayer</AssemblyName>
+    <RootNamespace>WebSkinPlayer</RootNamespace>
+    <Product>WebSkin Player</Product>
+    <Version>0.1.0</Version>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <StartupObject>WebSkinPlayer.Program</StartupObject>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Description>Windows Media Player skins and visualizations for music playing in the browser</Description>
+    <!-- The release workflow passes -p:RepositoryUrl=https://github.com/owner/repo; the app checks that repo for updates. -->
+    <GenerateRepositoryUrlAttribute>false</GenerateRepositoryUrlAttribute>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+    <AssemblyMetadata Include="RepositoryUrl" Value="$(RepositoryUrl)" Condition="'$(RepositoryUrl)' != ''" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Custom Main (Program.cs) starts the UI thread with a bigger stack. -->
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Jint" Version="4.17.0" />
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+  </ItemGroup>
+
+</Project>

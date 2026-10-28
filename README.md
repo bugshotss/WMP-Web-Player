@@ -1,0 +1,173 @@
+# WebSkin Player
+
+Original Windows Media Player skins (`.wmz`) and WMP-style visualizations for whatever your browser is playing:
+SoundCloud or Spotify in Chrome, Edge, or any app that shows up in the Windows media controls.
+
+Microsoft is ending skin support in Windows Media Player Legacy on November 10, 2026
+([notice](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/wmp/effects-windowed)).
+WebSkin Player re-implements the skin engine, so those skins keep working, with your web music instead of local files.
+
+## Install
+
+1. Download **`WebSkinPlayer-<version>-Setup.exe`** from the [latest release](../../releases/latest).
+2. Run it. It installs for your Windows account only, needs no admin rights and no separate .NET install, and adds a
+   **WebSkin Player** Start menu shortcut.
+3. Start playing something in the browser. The player picks it up automatically.
+
+Notes:
+- **Windows SmartScreen** may say it "protected your PC", because the installer isn't code-signed. Choose
+  **More info → Run anyway**.
+- **Opening `.wmz` files:** Windows asks which app to use the first time you open one. Pick **WebSkin Player** and
+  tick **Always**.
+- **Updates:** the app checks this repository's releases when it starts and shows **Update available** in full mode
+  (and in a skin's right-click menu). Running the new Setup.exe upgrades in place and keeps your skins and settings.
+- **Uninstall** from Settings → Apps. It asks whether to delete your downloaded skins and settings too.
+- **Portable:** the release also has a `portable.zip`. Unzip it anywhere and run `WebSkinPlayer.exe`. Put an empty
+  file named `portable` next to the exe to keep settings and skins in a `Data` folder beside it.
+
+Requires 64-bit Windows 10 (version 2004 or later) or Windows 11.
+
+## Getting skins
+
+No skins are bundled. They belong to their original authors.
+
+- **Skin Chooser → Get more skins** lists the 175-skin
+  [Windows Media Player Skins Collection](https://archive.org/details/windowsmediaplayerskinscollection) on archive.org,
+  with a screenshot of each skin taken in WMP. Download one (**Download and Apply**) or all of them (about 300 MB).
+  On a new install the app opens there.
+- **Install skin file…** accepts `.wmz`, `.wms` and `.zip` (every `.wmz` inside a zip is installed). Opening a `.wmz`
+  from Explorer installs it and switches to it.
+
+## Modes (as in WMP)
+
+| Mode | How | What |
+|---|---|---|
+| Full mode | Ctrl+1 | Now Playing with a large visualizer, plus the **Skin Chooser** (live previews, *Apply Skin*). |
+| Skin mode | Ctrl+2 | The selected `.wmz` skin, fully interactive. Right-click a skin for the app menu. |
+| Taskbar widget | Ctrl+3 | Docks in the Windows taskbar: art, title/artist, live mini-spectrum, previous/play/next. Click to open the player, scroll for volume, drag to move it, right-click for options. *Keep widget on the taskbar* shows it in every mode. |
+
+Other shortcuts: Ctrl+P play/pause, Ctrl+S stop, Ctrl+B / Ctrl+F previous / next, F8 mute, F9 / F10 volume.
+In full mode, double-click the visualizer (or press Alt+Enter) for full screen. Esc exits full screen.
+
+The player follows whatever is playing. To pin one app instead, use **Source** in full mode.
+
+## The skin engine
+
+It re-implements WMP's skin format:
+- **Elements:** views, subviews, buttons and button groups (mapping images), sliders, custom sliders, text,
+  effects, video, playlist, popups, equalizer and video settings.
+- **Scripting:** `jscript:` expressions, `wmpprop:` / `wmpenabled:` bindings, `*_onchange` and player events, all
+  running the skins' own JScript.
+- **Resources:** `res://wmploc.dll/...` strings, images and scripts come from the PC's Windows Media Player.
+
+It also reproduces the WMP quirks that skins depend on:
+- Names in scripts are case-insensitive.
+- A property can be read with call syntax, e.g. `mediacenter.effectType()`.
+- When `scriptFile` is omitted, the `.js` named like the `.wms` loads by default.
+- A VIEW's `clippingColor` and `transparencyColor` key the whole composed window.
+- A subview's `clippingColor` (with no `clippingImage`) cuts its background image into the subview's shape, which
+  also clips its children.
+- `onmouseout` fires only when the pointer leaves an element, not when it moves onto one of the element's children
+  (Revert fades its window on the view's `onmouseout`).
+- Setting `theme.currentViewID` switches to another view.
+- Preview views run with no `player` object, so the Skin Chooser shows them as WMP did.
+- `WMPImage_AlbumArt*` shows the current track's artwork.
+- Damaged zip headers are tolerated.
+- Animated GIFs play with their own frame timing, disposal, and loop count. Intro animations and shutters that play
+  once and end transparent (Kenwood, Blinx, STALKER) uncover what's underneath.
+- Visualizer names from WMP 7/XP (Spikes, Ambience, Musical Colors, Plenoptic, Particle) map to the closest current
+  effect, and the skin still reads back the name it set, so its own mode logic works.
+
+Many skins show the visualizer only on demand, exactly as in WMP: Kenwood defaults to track info (press
+**Previous Preset**, the top arrow in the right-hand cluster), Mecha and Plasma Ball have a visualizer button, and
+Gold slides it out in a drawer.
+
+**Compatibility across the collection:** all 175 skins load. 155 run their scripts without any error. The other 20
+hit bugs in their own scripts, such as references to elements the skin doesn't define. WMP silently ignored those
+errors, and so does this app; the errors are written to the log only.
+
+**Windows Media Player Legacy** (Settings → System → Optional features) supplies WMP's built-in button images and
+strings that some skins borrow, and the Alchemy visualizer. Without it, skins still load but those borrowed pieces
+are blank and Alchemy isn't listed.
+
+## Visualizations
+
+- **Alchemy:** the real WMP plug-in from `mpvis.dll`, hosted and fed system audio.
+- **Bars and Waves:** Bars, Ocean Mist, Fire Storm, and Scope. **Battery:** 8 presets. **Album Art.**
+  WMP's own Bars and Battery are locked inside `wmp.dll`, so these are faithful recreations.
+- Any other WMP visualization plug-in registered on the PC appears automatically.
+
+Audio for the visualizers is captured with WASAPI loopback, so they react to everything Windows plays.
+
+## Limits (web players can't be driven like local files)
+
+- Equalizer, balance and video settings are kept and shown in skins, but can't change the browser's audio.
+- Volume and mute control the source app's own entry in the Windows volume mixer (e.g. chrome.exe).
+- Seeking, shuffle and repeat work when the site supports them through the Windows media controls.
+  Fast-forward and rewind seek ±10 seconds.
+- There's no video. Skins with a video area but no visualizer area show the visualizer there.
+
+## Files
+
+- Settings: `%LOCALAPPDATA%\WebSkinPlayer\settings.json`
+- Skins: `%LOCALAPPDATA%\WebSkinPlayer\Skins`
+- Log: `%LOCALAPPDATA%\WebSkinPlayer\log.txt`
+- The app itself: `%LOCALAPPDATA%\Programs\WebSkin Player`
+
+## Building
+
+Needs the .NET 10 SDK, and [Inno Setup 6](https://jrsoftware.org/isinfo.php) for the installer
+(`winget install JRSoftware.InnoSetup`).
+
+```
+dotnet build src\WebSkinPlayer
+.\tools\Build-Release.ps1
+```
+
+`Build-Release.ps1` writes `artifacts\WebSkinPlayer-<version>-Setup.exe` and the portable zip. Both are
+self-contained, so the target PC needs no .NET install.
+
+**Releasing:** set `<Version>` in `src\WebSkinPlayer\WebSkinPlayer.csproj`, then push a matching tag:
+
+```
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The **Build** workflow (`.github/workflows/build.yml`) builds every push and pull request. For a `v*` tag it also
+publishes a GitHub release with the installer and zip attached. Builds made by the workflow know their repository and
+check it for updates; local builds don't.
+
+### Developer hooks
+
+- `WebSkinPlayer.exe --test-skins <folder|file> <outDir>` loads every skin headlessly. For each skin it writes
+  `<skin>.png` (the Skin Chooser preview) and `<skin>.tree.txt` (the element tree), plus a `report.txt` that
+  lists script errors.
+- `WebSkinPlayer.exe --test-live <folder|file> <outDir> [seconds]` opens each skin for real but hidden and sandboxed.
+  Scripts, timers, GIFs, and player events all run, but nothing reaches your player, volume, browser, or settings.
+  Afterwards it measures how much of every visualizer area is actually visible, and for a covered one names what is
+  drawn over it (`live-report.txt`).
+- `WebSkinPlayer.exe --automate script.txt` replays commands through the real input code:
+  `click x y`, `drag x1 y1 x2 y2`, `eval js`, `capture file.png`, `capturefull file.png`, `vis Bars 0`,
+  `skin path`, `widget`, `restore`, `fullmode`, `tab skins|online`, `uiclick ButtonName`, `uiselect ListName text`,
+  `state label`, `wait ms`, `exit`.
+- `--debug-input` logs every press and what it hit. `--widget` starts collapsed into the taskbar widget.
+  `--exit` closes a running copy (the installer uses it).
+- `WEBSKINPLAYER_DATA=<folder>` runs with a separate data folder, e.g. to try a first run on a clean profile.
+
+### Layout (`src\WebSkinPlayer`)
+
+- `Media\`: the Windows media session bridge, per-app volume, and the WMP-style player model.
+- `Audio\`: loopback capture and FFT, producing WMP's `TimedLevel`-shaped frames.
+- `Visualization\`: built-in effects, the hosted `IWMPEffects` adapter, the catalog, and the renderer.
+- `Skins\`: the package/resource/parser layers, the object model, `Scripting\` (Jint bridge and JScript
+  compatibility), `Elements\`, the views, windows and themes, and the archive.org skin downloader.
+- `UI\`: the full-mode window and the taskbar widget.
+- `installer\`: the Inno Setup script. `tools\`: the release build and icon scripts.
+- `spikes\`: throwaway experiments. `SmtcTestSource` is a fake media session with a quiet tone, used for tests.
+
+## Credits
+
+Skins are the work of their original authors and aren't part of this repository. Uses
+[Jint](https://github.com/sebastienros/jint) (BSD-2-Clause) for JScript and
+[NAudio](https://github.com/naudio/NAudio) (MIT) for audio capture.

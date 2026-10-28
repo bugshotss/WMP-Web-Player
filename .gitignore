@@ -1,0 +1,13 @@
+# Build output
+bin/
+obj/
+artifacts/
+dist/
+*.user
+.vs/
+spikes/*/out/
+
+# Skins are not ours to redistribute: the app downloads them from archive.org instead.
+collection/
+samples/
+*.wmz

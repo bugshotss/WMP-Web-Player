@@ -1,0 +1,308 @@
+using System.Globalization;
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+using WebSkinPlayer.Audio;
+using WebSkinPlayer.Skins.Scripting;
+using WebSkinPlayer.Visualization;
+
+namespace WebSkinPlayer.Skins.Elements;
+
+/// <summary>EFFECTS / WMPEFFECTS: hosts a visualization driven by system audio.</summary>
+public class EffectsElement : SkinElement
+{
+    static readonly Dictionary<string, PType> S = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["effecttype"] = PType.String, ["preset"] = PType.Int, ["currenteffecttype"] = PType.String,
+        ["currentpreset"] = PType.Int, ["windowed"] = PType.Bool, ["allowall"] = PType.Bool,
+        ["fullscreen"] = PType.Bool, ["backgroundcolor"] = PType.String,
+    };
+    protected override Dictionary<string, PType>? Schema => S;
+
+    protected readonly VisualizerRenderer Renderer = new() { MaxPixels = 640 * 480 };
+    bool _subscribed;
+    bool _applying;
+
+    public EffectsElement(SkinView view, WmsNode node) : base(view, node)
+    {
+        Computed("currentEffectTitle", () => Renderer.Descriptor?.Title ?? "");
+        Computed("currentPresetTitle", () => Renderer.Presets.Count > Renderer.Preset ? Renderer.Presets[Renderer.Preset] : "");
+        Computed("currentEffect", () => EffectKey(Renderer.Descriptor));
+        Computed("effectCount", () => (double)VisualizationCatalog.All.Count);
+        Computed("presetCount", () => (double)Renderer.Presets.Count);
+        Computed("effectCanGoFullScreen", () => false);
+        Computed("effectHasPropertyPage", () => false);
+        Method("next", _ => { Step(+1); return null; });
+        Method("previous", _ => { Step(-1); return null; });
+        Method("nextPreset", _ => { StepPreset(+1); return null; });
+        Method("previousPreset", _ => { StepPreset(-1); return null; });
+        Method("nextEffect", _ => { StepEffect(+1); return null; });
+        Method("previousEffect", _ => { StepEffect(-1); return null; });
+        Method("settings", _ => { App.Modes.ShowFullMode(); return null; });
+        Method("showPropertyPage", _ => null);
+        Method("getEffectTitle", a => VisualizationCatalog.All.ElementAtOrDefault(GetIntArg(a))?.Title ?? "");
+        Method("getEffectType", a => EffectKey(VisualizationCatalog.All.ElementAtOrDefault(GetIntArg(a))));
+        Method("getPresetTitle", a => Renderer.Presets.ElementAtOrDefault(GetIntArg(a)) ?? "");
+        Renderer.BitmapChanged += View.InvalidateVisual;
+    }
+
+    static int GetIntArg(object?[] a) => (int)ToNumber(Arg(a, 0));
+
+    /// <summary>What skins see in effectType: the plug-in's class id when it has one.</summary>
+    public static string EffectKey(VisDescriptor? d) => d == null ? "" : d.ClassId ?? d.Id;
+
+    public override bool IsInteractive => HasHandler("onclick") || HasHandler("ondblclick") || HasHandler("onmousedown");
+
+    public override void OnLoaded()
+    {
+        var svc = App.Services.Visualizations;
+        // Unbound effects follow the global visualization choice.
+        string type = GetString("currenteffecttype");
+        if (type.Length == 0) type = GetString("effecttype");
+        int preset = HasValue("currentpreset") ? GetInt("currentpreset") : HasValue("preset") ? GetInt("preset") : svc.Preset;
+        var d = VisualizationCatalog.Find(type) ?? svc.Current;
+        bool isAlias = type.Length > 0 && !type.Equals(EffectKey(d), StringComparison.OrdinalIgnoreCase) && !type.Equals(d.Id, StringComparison.OrdinalIgnoreCase);
+        Apply(d, preset, notify: false, alias: isAlias && VisualizationCatalog.Find(type) != null ? type : null);
+        UpdateSubscription();
+    }
+
+    public override void OnUnloaded()
+    {
+        if (_subscribed) App.Services.Visualizations.Unsubscribe(OnFrame);
+        _subscribed = false;
+        Renderer.Dispose();
+    }
+
+    /// <summary>The effect name the skin itself set (e.g. "Spikes"), reported back while it maps to the shown effect.</summary>
+    string? _alias;
+
+    void Apply(VisDescriptor d, int preset, bool notify, string? alias = null)
+    {
+        _applying = true;
+        if (alias != null) _alias = alias;
+        else if (_alias != null && VisualizationCatalog.Find(_alias)?.Id != d.Id) _alias = null;
+        Renderer.SetEffect(d, preset);
+        SetValue("currenteffecttype", _alias ?? EffectKey(d), notify);
+        SetValue("currentpreset", (double)Renderer.Preset, notify);
+        _applying = false;
+        if (notify)
+        {
+            Notify("currentEffectTitle");
+            Notify("currentPresetTitle");
+            App.Services.Visualizations.SetEffect(d.Id, Renderer.Preset);
+        }
+        View.InvalidateVisual();
+    }
+
+    protected override void OnPropertyChanged(string name)
+    {
+        if (name == "visible") UpdateSubscription();
+        if (_applying) return;
+        if (name is "currenteffecttype" or "effecttype")
+        {
+            string requested = GetString(name);
+            var d = VisualizationCatalog.Find(requested);
+            bool isAlias = d != null && !requested.Equals(EffectKey(d), StringComparison.OrdinalIgnoreCase) && !requested.Equals(d.Id, StringComparison.OrdinalIgnoreCase);
+            if (d != null) Apply(d, d.Id == Renderer.EffectId ? Renderer.Preset : 0, notify: true, alias: isAlias ? requested : null);
+        }
+        else if (name is "currentpreset" or "preset")
+        {
+            int p = GetInt(name);
+            if (Renderer.Descriptor != null && p != Renderer.Preset) Apply(Renderer.Descriptor, p, notify: true);
+        }
+    }
+
+    void StepPreset(int dir)
+    {
+        if (Renderer.Descriptor == null) return;
+        int n = Math.Max(1, Renderer.Presets.Count);
+        Apply(Renderer.Descriptor, ((Renderer.Preset + dir) % n + n) % n, notify: true);
+    }
+
+    void StepEffect(int dir)
+    {
+        var all = VisualizationCatalog.All;
+        int i = all.ToList().FindIndex(d => d.Id == Renderer.EffectId);
+        var next = all[((i + dir) % all.Count + all.Count) % all.Count];
+        Apply(next, dir > 0 ? 0 : next.Presets.Count - 1, notify: true);
+    }
+
+    /// <summary>next()/previous(): walk presets, rolling over into the neighbouring visualization.</summary>
+    void Step(int dir)
+    {
+        int n = Renderer.Presets.Count;
+        int p = Renderer.Preset + dir;
+        if (p >= 0 && p < n) StepPreset(dir);
+        else StepEffect(dir);
+    }
+
+    void UpdateSubscription()
+    {
+        bool want = IsEffectivelyVisible && View.IsOpen;
+        if (want && !_subscribed) { App.Services.Visualizations.Subscribe(OnFrame); _subscribed = true; }
+        else if (!want && _subscribed) { App.Services.Visualizations.Unsubscribe(OnFrame); _subscribed = false; }
+    }
+
+    public void RefreshSubscription() => UpdateSubscription();
+
+    void OnFrame(VisFrame frame)
+    {
+        if (!IsEffectivelyVisible) { UpdateSubscription(); return; }
+        var dpi = VisualTreeHelper.GetDpi(View.Surface);
+        Renderer.Resize((int)(Math.Max(1, Width) * dpi.DpiScaleX), (int)(Math.Max(1, Height) * dpi.DpiScaleY));
+        Renderer.Render(frame, App.Services.Visualizations.Context);
+    }
+
+    /// <summary>Test hook: paint visualizer areas a unique colour so their visible share can be measured.</summary>
+    public static bool MarkerMode { get; set; }
+    public static readonly Color MarkerColor = Color.FromRgb(0x12, 0xFE, 0x34);
+
+    public override void Render(DrawingContext dc, Rect b)
+    {
+        if (b.Width < 1 || b.Height < 1) return;
+        if (MarkerMode) { dc.DrawRectangle(new SolidColorBrush(MarkerColor), null, b); return; }
+        if (Renderer.Bitmap != null)
+            dc.DrawImage(Renderer.Bitmap, b);
+        else
+            dc.DrawRectangle(Brushes.Black, null, b);
+    }
+}
+
+/// <summary>
+/// VIDEO / WMPVIDEO. There is never video from a web player, so this shows the skin's background
+/// colour; if the skin has no EFFECTS element at all it shows the visualization instead.
+/// </summary>
+public sealed class VideoElement : EffectsElement
+{
+    static readonly Dictionary<string, PType> S = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["backgroundcolor"] = PType.String, ["stretchtofit"] = PType.Bool, ["zoom"] = PType.Int,
+        ["windowless"] = PType.Bool, ["maintainaspectratio"] = PType.Bool, ["fullscreen"] = PType.Bool,
+        ["cursor"] = PType.String, ["shrinktofit"] = PType.Bool,
+    };
+    protected override Dictionary<string, PType>? Schema => S;
+    bool _showVis;
+    public bool ShowsVisualization => _showVis;
+
+    public VideoElement(SkinView view, WmsNode node) : base(view, node) { }
+
+    protected override object? ElementDefault(string name) => name.Equals("backgroundcolor", StringComparison.OrdinalIgnoreCase) ? "#000000" : null;
+
+    public override void OnLoaded()
+    {
+        _showVis = !View.Theme.HasEffects;
+        if (_showVis) base.OnLoaded();
+    }
+
+    public override void Render(DrawingContext dc, Rect b)
+    {
+        int? c = SkinImages.ParseColor(GetString("backgroundcolor"));
+        if (c != null && !(MarkerMode && _showVis)) dc.DrawRectangle(new SolidColorBrush(Color.FromRgb((byte)(c >> 16), (byte)(c >> 8), (byte)c)), null, b);
+        if (_showVis) base.Render(dc, b);
+    }
+}
+
+/// <summary>PLAYLIST / ITEMSPLAYLIST / DROPDOWNPLAYLIST: the tracks heard this session, current one highlighted.</summary>
+public sealed class PlaylistElement : SkinElement
+{
+    static readonly Dictionary<string, PType> S = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["backgroundcolor"] = PType.String, ["foregroundcolor"] = PType.String, ["itemplayingcolor"] = PType.String,
+        ["itemplayingbackgroundcolor"] = PType.String, ["disableditemcolor"] = PType.String,
+        ["backgroundimage"] = PType.String, ["columns"] = PType.String, ["columnsvisible"] = PType.Bool,
+        ["fontface"] = PType.String, ["fontsize"] = PType.Number, ["dropdownvisible"] = PType.Bool,
+        ["selectedindex"] = PType.Int,
+    };
+    protected override Dictionary<string, PType>? Schema => S;
+    int _scrollTop;
+
+    public PlaylistElement(SkinView view, WmsNode node) : base(view, node)
+    {
+        Method("setColumnResizeMode", _ => null);
+        Method("setColumnWidth", _ => null);
+        Method("getColumnWidth", _ => 0.0);
+        Method("sortColumn", _ => null);
+        Method("getNextSelectedItem", _ => -1.0);
+        Method("getNextCheckedItem", _ => -1.0);
+        Method("setCheckedState", _ => null);
+        Method("getCheckedState", _ => false);
+        Method("deleteSelected", _ => null);
+        Method("moveSelectedUp", _ => null);
+        Method("moveSelectedDown", _ => null);
+        Computed("itemCount", () => (double)View.Theme.Objects.History.Count);
+        Computed("playlist", () => View.Theme.Objects.CurrentPlaylist);
+    }
+
+    protected override object? ElementDefault(string name) => name.ToLowerInvariant() switch
+    {
+        "backgroundcolor" => "#000000", "foregroundcolor" => "#C0C0C0", "itemplayingcolor" => "#FFFFFF",
+        "fontface" => "Tahoma", "fontsize" => 8.0, _ => null,
+    };
+
+    public override bool IsInteractive => true;
+
+    public override void OnMouseWheel(int delta)
+    {
+        _scrollTop = Math.Max(0, _scrollTop - Math.Sign(delta));
+        View.InvalidateVisual();
+    }
+
+    static Color C(string s, int fallback)
+    {
+        int c = SkinImages.ParseColor(s) ?? fallback;
+        return Color.FromRgb((byte)(c >> 16), (byte)(c >> 8), (byte)c);
+    }
+
+    public override void Render(DrawingContext dc, Rect b)
+    {
+        if (b.Width < 4 || b.Height < 4) return;
+        dc.PushClip(new RectangleGeometry(b));
+        if (SkinImages.ParseColor(GetString("backgroundcolor")) != null)
+            dc.DrawRectangle(new SolidColorBrush(C(GetString("backgroundcolor"), 0)), null, b);
+        var bg = Img("backgroundimage");
+        if (bg != null) dc.DrawImage(bg.Source, new Rect(b.X, b.Y, bg.Width, bg.Height));
+
+        var items = View.Theme.Objects.History;
+        double px = Math.Max(6, GetNumber("fontsize")) * 96 / 72;
+        double rowH = Math.Ceiling(px * 1.45);
+        var face = new Typeface(GetString("fontface") + ", Tahoma");
+        double dip = VisualTreeHelper.GetDpi(View.Surface).PixelsPerDip;
+        var fg = new SolidColorBrush(C(GetString("foregroundcolor"), 0xC0C0C0));
+        var playing = new SolidColorBrush(C(GetString("itemplayingcolor"), 0xFFFFFF));
+        int rows = (int)(b.Height / rowH);
+        _scrollTop = Math.Min(_scrollTop, Math.Max(0, items.Count - rows));
+        double y = b.Y + 2;
+        for (int i = _scrollTop; i < items.Count && y < b.Bottom; i++)
+        {
+            var it = items[i];
+            bool current = i == items.Count - 1;
+            if (current && SkinImages.ParseColor(GetString("itemplayingbackgroundcolor")) != null)
+                dc.DrawRectangle(new SolidColorBrush(C(GetString("itemplayingbackgroundcolor"), 0)), null, new Rect(b.X, y - 1, b.Width, rowH));
+            var brush = current ? playing : fg;
+            string name = it.Artist.Length > 0 ? $"{it.Title} - {it.Artist}" : it.Title;
+            var title = new FormattedText($"{i + 1}. {name}", CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, face, px, brush, dip)
+            { MaxTextWidth = Math.Max(1, b.Width - 52), MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis };
+            if (current) title.SetFontWeight(FontWeights.Bold);
+            dc.DrawText(title, new Point(b.X + 4, y));
+            if (it.Duration > 0)
+            {
+                var dur = new FormattedText(Media.PlayerModel.FormatTime(it.Duration), CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, face, px, brush, dip);
+                dc.DrawText(dur, new Point(b.Right - dur.Width - 4, y));
+            }
+            y += rowH;
+        }
+        if (items.Count == 0)
+        {
+            var hint = new FormattedText("Play something in your browser", CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, face, px, fg, dip)
+            { MaxTextWidth = Math.Max(1, b.Width - 8), MaxLineCount = 2, Trimming = TextTrimming.CharacterEllipsis };
+            dc.DrawText(hint, new Point(b.X + 4, b.Y + 4));
+        }
+        dc.Pop();
+    }
+
+    public override void OnMouseDown(Point local, MouseButton button)
+    {
+        base.OnMouseDown(local, button);
+        View.Focus(this);
+    }
+}
