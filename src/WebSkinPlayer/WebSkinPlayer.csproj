@@ -13,7 +13,7 @@
     <AssemblyName>WebSkinPlayer</AssemblyName>
     <RootNamespace>WebSkinPlayer</RootNamespace>
     <Product>WebSkin Player</Product>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
     <StartupObject>WebSkinPlayer.Program</StartupObject>
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <Resource Include="app.ico" />
+    <EmbeddedResource Include="Skins\SkinCatalog.json" LogicalName="WebSkinPlayer.Skins.SkinCatalog.json" />
     <AssemblyMetadata Include="RepositoryUrl" Value="$(RepositoryUrl)" Condition="'$(RepositoryUrl)' != ''" />
   </ItemGroup>
 

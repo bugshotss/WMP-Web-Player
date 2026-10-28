@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using WebSkinPlayer.Audio;
@@ -23,11 +24,25 @@ public partial class App : Application
 {
     public static Services Services { get; private set; } = null!;
     public static ModeController Modes { get; private set; } = null!;
+    /// <summary>The visualizer screen saver; null in the test modes.</summary>
+    public static ScreenSaver? ScreenSaver { get; private set; }
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         DispatcherUnhandledException += OnUnhandled;
+
+        // --import-vis <dll|zip|folder> [label]: adds WMP visualization plug-ins, writes a report, and exits.
+        int import = Array.FindIndex(e.Args, a => a.Equals("--import-vis", StringComparison.OrdinalIgnoreCase));
+        if (import >= 0 && e.Args.Length > import + 1)
+        {
+            var lines = PluginLibrary.Import(e.Args[import + 1], e.Args.Length > import + 2 ? e.Args[import + 2] : Path.GetFileName(e.Args[import + 1]));
+            foreach (var line in lines) Log.Write("[import] " + line);
+            Directory.CreateDirectory(PluginLibrary.Folder);
+            File.WriteAllLines(Path.Combine(PluginLibrary.Folder, "import-report.txt"), lines);
+            Shutdown();
+            return;
+        }
 
         bool isTest = e.Args.Any(a => a.Equals("--test-skins", StringComparison.OrdinalIgnoreCase) || a.Equals("--test-live", StringComparison.OrdinalIgnoreCase));
         if (isTest) Sandbox.Enabled = true;
@@ -108,7 +123,11 @@ public partial class App : Application
         if (auto >= 0 && e.Args.Length > auto + 1) AutomationRunner.Run(e.Args[auto + 1]);
 
         _started.TrySetResult();
-        if (!isTest) _ = UpdateChecker.CheckAsync();
+        if (!isTest)
+        {
+            ScreenSaver = new ScreenSaver();
+            _ = UpdateChecker.CheckAsync();
+        }
     }
 
     readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);

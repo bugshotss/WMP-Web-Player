@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 32-bit helper that runs old WMP visualization plug-ins (32-bit COM DLLs) for the 64-bit player. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>WebSkinPlayer.VisHost32</AssemblyName>
+    <RootNamespace>WebSkinPlayer.VisHost32</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Shipped self-contained (a 32-bit .NET can't be assumed), so keep it small. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+  </PropertyGroup>
+
+</Project>

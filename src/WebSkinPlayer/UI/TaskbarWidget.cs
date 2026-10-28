@@ -260,6 +260,8 @@ public sealed class TaskbarWidget : IDisposable
         pos.Items.Add(new MenuItem { Header = "Tip: drag the widget to move it", IsEnabled = false });
         menu.Items.Add(pos);
         menu.Items.Add(Item("Keep widget on the taskbar", App.Modes.ToggleWidgetAlwaysOn, S.Settings.WidgetAlwaysOn));
+        menu.Items.Add(Item("Keep player on top of other windows", App.Modes.ToggleAlwaysOnTop, S.Settings.AlwaysOnTop));
+        if (App.ScreenSaver is { } saver) menu.Items.Add(saver.BuildMenu());
         menu.Items.Add(Item("Hide widget", () => App.Modes.HideWidget()));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Exit", App.Modes.Exit));

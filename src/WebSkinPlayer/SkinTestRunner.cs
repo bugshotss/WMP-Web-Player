@@ -54,5 +54,16 @@ public static class SkinTestRunner
         }
         report.Insert(0, $"{files.Count} skins: {ok} clean, {withErrors} with script errors, {failed} failed to load{Environment.NewLine}{Environment.NewLine}");
         File.WriteAllText(Path.Combine(outDir, "report.txt"), report.ToString());
+
+        // How the Skin Chooser groups them: file, title, publisher, designer, then the skin's own author and copyright.
+        var library = new SkinLibrary();
+        var groups = new StringBuilder("file\ttitle\tpublisher\tdesigner\tauthor\tcopyright" + Environment.NewLine);
+        foreach (var file in files.Where(f => f.EndsWith(".wmz", StringComparison.OrdinalIgnoreCase)))
+        {
+            var entry = new SkinEntry { Path = file, FileName = Path.GetFileName(file), Size = new FileInfo(file).Length };
+            library.EnsureMetadata(entry);
+            groups.AppendLine(string.Join('\t', entry.FileName, entry.DisplayName, entry.Publisher, entry.Designer ?? "", entry.Author, entry.Copyright).Replace("\r", " ").Replace("\n", " "));
+        }
+        File.WriteAllText(Path.Combine(outDir, "publishers.tsv"), groups.ToString());
     }
 }

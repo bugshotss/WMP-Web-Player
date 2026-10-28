@@ -12,6 +12,10 @@ public sealed class SkinEntry
     public string Copyright { get; set; } = "";
     public long Size { get; init; }
     public bool MetadataLoaded { get; set; }
+    /// <summary>Brand the skin was made for (Microsoft, Disney...), from <see cref="SkinCatalog"/>.</summary>
+    public string Publisher { get; set; } = SkinCatalog.Other;
+    public string? Designer { get; set; }
+    public string PublisherSort => SkinCatalog.SortKey(Publisher);
     public string DisplayName => Title.Length > 0 ? Title : PrettyName(FileName);
 
     internal static string PrettyName(string file)
@@ -79,6 +83,7 @@ public sealed class SkinLibrary
                 entry.Title = "";
         }
         catch (Exception ex) { Log.Write($"Skin metadata {entry.FileName}: {ex.Message}"); }
+        (entry.Publisher, entry.Designer) = SkinCatalog.Lookup(entry.FileName, entry.Author, entry.Copyright);
     }
 
     /// <summary>Installs every .wmz inside a .zip archive (e.g. a downloaded skin collection).</summary>

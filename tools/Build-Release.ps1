@@ -26,6 +26,12 @@ dotnet publish $project -c Release -r win-x64 --self-contained true -o $publish 
     -p:SatelliteResourceLanguages=en -p:DebugType=embedded
 if ($LASTEXITCODE) { throw "dotnet publish failed" }
 
+# The 32-bit helper that runs old WMP visualization plug-ins, in its own folder (its runtime is x86).
+Write-Host "Publishing the 32-bit visualization helper"
+dotnet publish (Join-Path $root "src\WebSkinPlayer.VisHost32\WebSkinPlayer.VisHost32.csproj") -c Release -r win-x86 --self-contained true `
+    -o (Join-Path $publish "VisHost32") --nologo "-p:Version=$Version" -p:DebugType=none
+if ($LASTEXITCODE) { throw "dotnet publish (VisHost32) failed" }
+
 $zip = Join-Path $Out "WebSkinPlayer-$Version-win-x64-portable.zip"
 Compress-Archive -Path (Join-Path $publish "*") -DestinationPath $zip
 

@@ -145,7 +145,10 @@ public sealed class SkinView : SubviewElement
         _all.Add(el);
         ApplyPresets(el);
         ApplyAttributes(el, n);
-        if (el.Id != null) _byId[el.Id] = el;
+        // WMP applies attributes in order: a repeated property keeps its last value, and every id names the
+        // element, so one given two ids answers to both (Official Xbox's intro uses both names).
+        foreach (var a in n.Attributes)
+            if (a.Key.Equals("id", StringComparison.OrdinalIgnoreCase) && a.Value.Length > 0) _byId[a.Value] = el;
         foreach (var c in n.Children) BuildNode(c, el, ref order);
     }
 
@@ -241,7 +244,8 @@ public sealed class SkinView : SubviewElement
             if (v.StartsWith("jscript:", StringComparison.OrdinalIgnoreCase) || v.StartsWith("wmpprop:", StringComparison.OrdinalIgnoreCase) ||
                 v.StartsWith("wmpenabled:", StringComparison.OrdinalIgnoreCase) || v.StartsWith("wmpdisabled:", StringComparison.OrdinalIgnoreCase))
                 _deferred.Add((el, name, v));
-            else if (WmpResources.IsResourceUrl(v) && !IsImageAttribute(name))
+            // A string resource stands for its text; scriptFile is a list of files that may start with one (Summate).
+            else if (WmpResources.IsResourceUrl(v) && !IsImageAttribute(name) && !name.Equals("scriptfile", StringComparison.OrdinalIgnoreCase))
                 el.SetValue(name, WmpResources.ReadText(v) ?? "", false);
             else
                 el.SetValue(name, raw, false);

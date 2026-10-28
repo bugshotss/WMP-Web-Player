@@ -250,12 +250,8 @@ public sealed class SkinTheme
             menu.Items.Add(play);
             menu.Items.Add(visMenu);
             menu.Items.Add(new Separator());
-            bool top = view?.Window?.Topmost ?? false;
-            menu.Items.Add(Item("Always on Top", () =>
-            {
-                foreach (var v in _open) if (v.Window != null) v.Window.Topmost = !top;
-                App.Services.Settings.MediaCenter["__alwaysOnTop"] = (!top ? "true" : "false") + "|b";
-            }, true, top));
+            menu.Items.Add(Item("Always on Top", App.Modes.ToggleAlwaysOnTop, true, App.Modes.AlwaysOnTop));
+            if (App.ScreenSaver is { } saver) menu.Items.Add(saver.BuildMenu());
             menu.Items.Add(Item("Skin Chooser…", App.Modes.ShowFullMode));
             menu.Items.Add(Item("Switch to Full Mode\tCtrl+1", App.Modes.ShowFullMode));
             menu.Items.Add(Item("Turn into Taskbar Widget\tCtrl+3", App.Modes.CollapseToWidget));

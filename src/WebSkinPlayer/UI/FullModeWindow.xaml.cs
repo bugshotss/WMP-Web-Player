@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
@@ -24,6 +25,7 @@ public partial class FullModeWindow : Window
     public FullModeWindow()
     {
         InitializeComponent();
+        Topmost = S.Settings.AlwaysOnTop;
         var place = S.Settings.FullMode;
         if (!double.IsNaN(place.Width)) { Width = place.Width; Height = place.Height; }
         if (!double.IsNaN(place.Left)) { WindowStartupLocation = WindowStartupLocation.Manual; Left = place.Left; Top = place.Top; }
@@ -36,6 +38,8 @@ public partial class FullModeWindow : Window
             S.Visualizations.EffectChanged += UpdateEffectBoxes;
             S.Skins.Changed += RefreshSkins;
             UpdateChecker.Found += ShowUpdate;
+            App.Modes.AlwaysOnTopChanged += UpdateOnTop;
+            UpdateOnTop();
             UpdateMedia();
             UpdateEffectBoxes();
             RefreshSources();
@@ -53,6 +57,7 @@ public partial class FullModeWindow : Window
             S.Visualizations.EffectChanged -= UpdateEffectBoxes;
             S.Skins.Changed -= RefreshSkins;
             UpdateChecker.Found -= ShowUpdate;
+            App.Modes.AlwaysOnTopChanged -= UpdateOnTop;
             _downloadCts?.Cancel();
             _timer.Stop();
         };
@@ -222,10 +227,32 @@ public partial class FullModeWindow : Window
             menu.Items.Add(sub);
         }
         menu.Items.Add(new Separator());
+        var onTop = new MenuItem { Header = "Always on Top", IsCheckable = true, IsChecked = App.Modes.AlwaysOnTop };
+        onTop.Click += (_, _) => App.Modes.ToggleAlwaysOnTop();
+        menu.Items.Add(onTop);
+        if (App.ScreenSaver is { } saver) menu.Items.Add(saver.BuildMenu());
+        var add = new MenuItem { Header = "Add Visualization…", IsEnabled = PluginLibrary.HostAvailable };
+        add.Click += (_, _) => AddVisualization();
+        menu.Items.Add(add);
         var fs = new MenuItem { Header = _fullScreen ? "Exit full screen" : "Full screen" };
         fs.Click += (_, _) => ToggleFullScreen();
         menu.Items.Add(fs);
         menu.IsOpen = true;
+    }
+
+    /// <summary>Adds WMP visualization plug-ins from a DLL or a zip (old installers need unpacking first).</summary>
+    void AddVisualization()
+    {
+        var dlg = new OpenFileDialog { Filter = "WMP visualization plug-ins (*.dll;*.zip)|*.dll;*.zip", Multiselect = true, Title = "Add visualizations" };
+        if (dlg.ShowDialog(this) != true) return;
+        Cursor = Cursors.Wait;
+        var report = new List<string>();
+        try { foreach (var f in dlg.FileNames) report.AddRange(PluginLibrary.Import(f, System.IO.Path.GetFileName(f))); }
+        finally { Cursor = null; }
+        VisualizationCatalog.Reload();
+        UpdateEffectBoxes();
+        MessageBox.Show(this, report.Count > 0 ? string.Join(Environment.NewLine, report) : "No WMP visualization was found in that file.",
+            "Add visualizations", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     // ---- full screen visualizer (WMP's Alt+Enter) ----------------------------------------
@@ -285,23 +312,61 @@ public partial class FullModeWindow : Window
 
     void OnSkinSearch(object sender, TextChangedEventArgs e) => ApplySkinFilter();
 
+    sealed record PublisherItem(string? Name, string Label) { public override string ToString() => Label; }
+    bool _fillingPublishers;
+
+    void OnPublisherFilter(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_fillingPublishers && SkinList != null) ApplySkinFilter();
+    }
+
+    /// <summary>Lists each publisher with its skin count, keeping the current choice when it still exists.</summary>
+    void FillPublishers(IEnumerable<string> publishers)
+    {
+        string? current = (PublisherFilter.SelectedItem as PublisherItem)?.Name;
+        var groups = publishers.GroupBy(p => p).OrderBy(g => SkinCatalog.SortKey(g.Key), StringComparer.CurrentCultureIgnoreCase).ToList();
+        var items = new List<PublisherItem> { new(null, $"All publishers ({groups.Sum(g => g.Count())})") };
+        items.AddRange(groups.Select(g => new PublisherItem(g.Key, $"{g.Key} ({g.Count()})")));
+        _fillingPublishers = true;
+        PublisherFilter.ItemsSource = items;
+        PublisherFilter.SelectedItem = items.FirstOrDefault(i => i.Name == current) ?? items[0];
+        _fillingPublishers = false;
+    }
+
+    /// <summary>Items under a header per publisher (alphabetical, independent artists and unknown last), then by name.</summary>
+    static ListCollectionView Grouped(System.Collections.IList items)
+    {
+        var view = new ListCollectionView(items);
+        view.GroupDescriptions.Add(new PropertyGroupDescription("Publisher"));
+        view.SortDescriptions.Add(new System.ComponentModel.SortDescription("PublisherSort", System.ComponentModel.ListSortDirection.Ascending));
+        view.SortDescriptions.Add(new System.ComponentModel.SortDescription("DisplayName", System.ComponentModel.ListSortDirection.Ascending));
+        return view;
+    }
+
+    static bool Matches(string q, params string?[] fields) =>
+        q.Length == 0 || fields.Any(f => f != null && f.Contains(q, StringComparison.CurrentCultureIgnoreCase));
+
     void ApplySkinFilter()
     {
         string q = SkinSearch.Text.Trim();
         if (OnlineMode)
         {
             var all = _online ?? new List<OnlineSkin>();
-            var found = all.Where(s => q.Length == 0 || s.DisplayName.Contains(q, StringComparison.CurrentCultureIgnoreCase)).ToList();
+            FillPublishers(all.Select(s => s.Publisher));
+            string? onlyFrom = (PublisherFilter.SelectedItem as PublisherItem)?.Name;
+            var found = all.Where(s => (onlyFrom == null || s.Publisher == onlyFrom) && Matches(q, s.DisplayName, s.Publisher, s.Designer)).ToList();
             var current = SkinList.SelectedItem as OnlineSkin;
-            SkinList.ItemsSource = found;
+            SkinList.ItemsSource = Grouped(found);
             if (_online != null) SkinCount.Text = $"{found.Count} of {all.Count} skins on archive.org · {all.Count(s => !s.Installed)} not installed";
             SkinList.SelectedItem = current != null && found.Contains(current) ? current : found.FirstOrDefault(s => !s.Installed) ?? found.FirstOrDefault();
             if (SkinList.SelectedItem != null) SkinList.ScrollIntoView(SkinList.SelectedItem);
             return;
         }
-        var list = q.Length == 0 ? _allSkins : _allSkins.Where(s => s.DisplayName.Contains(q, StringComparison.CurrentCultureIgnoreCase) || s.Author.Contains(q, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        FillPublishers(_allSkins.Select(s => s.Publisher));
+        string? publisher = (PublisherFilter.SelectedItem as PublisherItem)?.Name;
+        var list = _allSkins.Where(s => (publisher == null || s.Publisher == publisher) && Matches(q, s.DisplayName, s.Author, s.Publisher, s.Designer)).ToList();
         var selected = SkinList.SelectedItem as SkinEntry;
-        SkinList.ItemsSource = list;
+        SkinList.ItemsSource = Grouped(list);
         SkinCount.Text = $"{list.Count} of {_allSkins.Count} skins";
         SkinList.SelectedItem = selected != null && list.Contains(selected) ? selected
             : list.FirstOrDefault(s => string.Equals(s.Path, S.Settings.CurrentSkin, StringComparison.OrdinalIgnoreCase)) ?? list.FirstOrDefault();
@@ -326,7 +391,7 @@ public partial class FullModeWindow : Window
             return;
         }
         SkinName.Text = entry.DisplayName;
-        SkinAuthor.Text = string.Join("  ·  ", new[] { entry.Author, entry.FileName }.Where(s => s.Length > 0));
+        SkinAuthor.Text = string.Join("  ·  ", new[] { PublisherLine(entry.Publisher, entry.Designer ?? entry.Author), entry.FileName }.Where(s => s.Length > 0));
         int version = ++_previewVersion;
         SkinPreview.Source = null;
         SkinPreviewStatus.Text = "Rendering preview…";
@@ -426,7 +491,8 @@ public partial class FullModeWindow : Window
     void ShowOnlinePreview(OnlineSkin skin)
     {
         SkinName.Text = skin.DisplayName;
-        SkinAuthor.Text = $"{FormatSize(skin.Size)}  ·  {(skin.Installed ? "installed" : "not installed")}  ·  screenshot taken in Windows Media Player";
+        SkinAuthor.Text = string.Join("  ·  ", new[] { PublisherLine(skin.Publisher, skin.Designer), FormatSize(skin.Size),
+            skin.Installed ? "installed" : "not installed", "screenshot taken in Windows Media Player" }.Where(s => s.Length > 0));
         DownloadSkin.Content = skin.Installed ? "Apply Skin" : "Download and Apply";
         int version = ++_previewVersion;
         SkinPreview.Source = null;
@@ -524,6 +590,15 @@ public partial class FullModeWindow : Window
         return done;
     }
 
+    /// <summary>"Disney · designed by The Skins Factory", "Microsoft", or just the artist for independent skins.</summary>
+    static string PublisherLine(string publisher, string? designer)
+    {
+        designer = designer?.Trim();
+        if (publisher is SkinCatalog.Independent or SkinCatalog.Other) return designer ?? "";
+        return string.IsNullOrEmpty(designer) || designer.Contains(publisher, StringComparison.OrdinalIgnoreCase) || publisher.Contains(designer, StringComparison.OrdinalIgnoreCase)
+            ? publisher : $"{publisher} · designed by {designer}";
+    }
+
     static string FormatSize(long bytes) => bytes >= 1 << 20 ? $"{bytes / 1048576.0:0.#} MB" : $"{Math.Max(1, bytes / 1024)} KB";
 
     // ---- updates ------------------------------------------------------------------------
@@ -541,6 +616,18 @@ public partial class FullModeWindow : Window
     }
 
     void OnWidgetMode(object sender, RoutedEventArgs e) => App.Modes.CollapseToWidget();
+
+    void OnAlwaysOnTop(object sender, RoutedEventArgs e) => App.Modes.ToggleAlwaysOnTop();
+
+    /// <summary>The pin shows filled and in the accent colour while the player stays on top.</summary>
+    void UpdateOnTop()
+    {
+        bool on = App.Modes.AlwaysOnTop;
+        OnTopBtn.Content = on ? "" : "";
+        OnTopBtn.Foreground = on ? (System.Windows.Media.Brush)FindResource("Accent") : (System.Windows.Media.Brush)FindResource("TextMain");
+        OnTopBtn.ToolTip = on ? "Always on top: on. Click to let other windows cover the player"
+                              : "Always on top: off. Click to keep the player above other windows";
+    }
 
     void OnSkinMode(object sender, RoutedEventArgs e)
     {

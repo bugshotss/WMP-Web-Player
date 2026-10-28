@@ -172,6 +172,25 @@ public sealed class ModeController
         else _widget?.Hide();
     }
 
+    /// <summary>Raised when Always on Top is switched, so the toggles can show the new state.</summary>
+    public event Action? AlwaysOnTopChanged;
+
+    public bool AlwaysOnTop => App.Services.Settings.AlwaysOnTop;
+
+    /// <summary>Keeps every player window (full mode and all skin windows) above other windows, or lets them go behind.</summary>
+    public void SetAlwaysOnTop(bool on)
+    {
+        App.Services.Settings.AlwaysOnTop = on;
+        App.Services.Settings.Save();
+        if (_full != null) _full.Topmost = on;
+        if (_theme != null)
+            foreach (var v in _theme.OpenViews)
+                if (v.Window != null) v.Window.Topmost = on;
+        AlwaysOnTopChanged?.Invoke();
+    }
+
+    public void ToggleAlwaysOnTop() => SetAlwaysOnTop(!AlwaysOnTop);
+
     public void ToggleWidgetAlwaysOn()
     {
         App.Services.Settings.WidgetAlwaysOn = !App.Services.Settings.WidgetAlwaysOn;

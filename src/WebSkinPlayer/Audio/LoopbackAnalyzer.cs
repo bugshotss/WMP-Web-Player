@@ -151,7 +151,24 @@ public sealed class LoopbackAnalyzer : IDisposable, IMMNotificationClient
         if (renderTick == _frameTick) return _frame;
         _frameTick = renderTick;
         Analyze(_frame);
+        if (TestSignal) Synthesize(_frame, renderTick);
         return _frame;
+    }
+
+    /// <summary>WEBSKINPLAYER_TESTSIGNAL=1 feeds made-up music to the visualizers (tests without sound).</summary>
+    static readonly bool TestSignal = Environment.GetEnvironmentVariable("WEBSKINPLAYER_TESTSIGNAL") == "1";
+
+    static void Synthesize(VisFrame f, long tick)
+    {
+        double t = tick / 10_000_000.0, beat = 0.5 + 0.5 * Math.Sin(t * Math.PI * 4);
+        for (int ch = 0; ch < 2; ch++)
+            for (int i = 0; i < VisFrame.Bins; i++)
+            {
+                double s = Math.Sin(i * 0.05 + t * 7 + ch) * 0.5 + Math.Sin(i * 0.013 + t * 3) * 0.3 * beat;
+                f.Waveform[ch * VisFrame.Bins + i] = (byte)Math.Clamp(128 + s * 110, 0, 255);
+                f.Frequency[ch * VisFrame.Bins + i] = (byte)Math.Clamp(220 * Math.Exp(-i / 160.0) * (0.55 + 0.45 * Math.Sin(t * 5 + i * 0.03)) * (0.6 + 0.4 * beat), 0, 255);
+            }
+        f.Playing = true;
     }
 
     void Analyze(VisFrame f)

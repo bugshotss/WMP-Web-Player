@@ -6,8 +6,15 @@ public sealed record VisDescriptor(string Id, string Title, string? ClassId, IRe
 public static class VisualizationCatalog
 {
     static List<VisDescriptor>? _all;
+    static readonly List<string> _builtInTitles = new();
 
     public static IReadOnlyList<VisDescriptor> All => _all ??= Load();
+
+    /// <summary>Titles of the visualizations the app has without any added plug-ins.</summary>
+    public static IReadOnlyList<string> BuiltInTitles { get { _ = All; return _builtInTitles; } }
+
+    /// <summary>Re-reads the list after plug-ins were added.</summary>
+    public static void Reload() => _all = null;
 
     static List<VisDescriptor> Load()
     {
@@ -28,6 +35,12 @@ public static class VisualizationCatalog
         list.Add(new VisDescriptor(battery.Id, battery.Title, Battery.ClassId, battery.Presets, () => new Battery()));
         var art = new AlbumArtVisualization();
         list.Add(new VisDescriptor(art.Id, art.Title, null, art.Presets, () => new AlbumArtVisualization()));
+        _builtInTitles.Clear();
+        _builtInTitles.AddRange(list.Select(d => d.Title));
+        // Added 32-bit plug-ins (WMP 8's originals, the Plus! and Averett packs...), run by the 32-bit helper.
+        foreach (var plugin in PluginLibrary.Load())
+            if (!list.Any(d => d.Id.Equals(plugin.Id, StringComparison.OrdinalIgnoreCase)))
+                list.Add(new VisDescriptor(plugin.Id, plugin.Title, plugin.Clsid, plugin.Presets, () => new Hosted32Visualization(plugin)));
         Log.Write("Visualizations: " + string.Join(", ", list.Select(v => $"{v.Title} ({v.Presets.Count})")));
         return list;
     }

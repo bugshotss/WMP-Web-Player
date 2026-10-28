@@ -141,7 +141,7 @@ public sealed class SkinWindow : Window
         Activated += (_, _) => _view.Theme.ActiveView = _view;
         Closing += OnClosing;
         LocationChanged += (_, _) => SavePlacement();
-        Topmost = App.Services.Settings.MediaCenter.TryGetValue("__alwaysOnTop", out var top) && top.StartsWith("true");
+        Topmost = App.Services.Settings.AlwaysOnTop;
         try { Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/app.ico")); } catch { }
         SourceInitialized += (_, _) =>
         {

@@ -19,6 +19,14 @@ public sealed class AppSettings
     public string EffectId { get; set; } = "Bars";
     public int EffectPreset { get; set; }
     public string? PreferredApp { get; set; }
+    /// <summary>Player windows (full mode and every skin window) stay above other windows.</summary>
+    public bool AlwaysOnTop { get; set; }
+    /// <summary>Visualizer screen saver: random full-screen visualizers once the PC has been idle this long.</summary>
+    public bool ScreenSaverEnabled { get; set; }
+    public int ScreenSaverIdleMinutes { get; set; } = 5;
+    public int ScreenSaverChangeSeconds { get; set; } = 30;
+    /// <summary>Lock Windows when the screen saver is dismissed.</summary>
+    public bool ScreenSaverLocks { get; set; }
     /// <summary>Taskbar widget: shown even when a player window is open.</summary>
     public bool WidgetAlwaysOn { get; set; }
     /// <summary>The app was collapsed into the taskbar widget when it last closed.</summary>
@@ -45,7 +53,13 @@ public sealed class AppSettings
     {
         try
         {
-            if (File.Exists(FilePath)) return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), Json) ?? new();
+            if (File.Exists(FilePath))
+            {
+                var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), Json) ?? new();
+                // Earlier builds kept a skin-only flag among the skins' mediacenter values.
+                if (settings.MediaCenter.Remove("__alwaysOnTop", out var old) && old.StartsWith("true")) settings.AlwaysOnTop = true;
+                return settings;
+            }
         }
         catch (Exception ex) { Log.Write("Settings load failed: " + ex.Message); }
         return new AppSettings();

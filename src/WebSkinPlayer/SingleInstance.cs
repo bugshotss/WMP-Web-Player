@@ -12,12 +12,17 @@ public static class SingleInstance
 {
     const string End = "\u0004";
     static Mutex? _mutex;
-    static string PipeName => "WebSkinPlayer.Instance." + Environment.UserName;
+    static string PipeName => "WebSkinPlayer.Instance." + Environment.UserName + Scope;
+
+    /// <summary>A separate data folder (WEBSKINPLAYER_DATA, used for clean-profile tests) is a separate player.</summary>
+    static readonly string Scope = Environment.GetEnvironmentVariable("WEBSKINPLAYER_DATA") is { Length: > 0 } dir
+        ? "." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(dir).ToLowerInvariant())))[..12]
+        : "";
 
     /// <summary>True when this process is the first instance.</summary>
     public static bool TryBecomePrimary()
     {
-        _mutex = new Mutex(true, @"Local\WebSkinPlayer.SingleInstance", out bool created);
+        _mutex = new Mutex(true, @"Local\WebSkinPlayer.SingleInstance" + Scope, out bool created);
         return created;
     }
 

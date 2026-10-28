@@ -37,6 +37,14 @@ No skins are bundled. They belong to their original authors.
   On a new install the app opens there.
 - **Install skin file…** accepts `.wmz`, `.wms` and `.zip` (every `.wmz` inside a zip is installed). Opening a `.wmz`
   from Explorer installs it and switches to it.
+- [WMP Goodies](https://sites.google.com/view/wmpgoodies/skins) lists another 266 skins (about 150 not in the
+  archive.org collection). Download them from there and use **Install skin file…**.
+
+The Skin Chooser groups skins by **publisher**: the company a skin was made for (Microsoft, Disney, Warner Bros.,
+Alienware...), with skins by individual artists under *Independent artists*. Pick one publisher from the list under
+the search box, or type a publisher or designer name into the search. A skin's details show who designed it, e.g.
+*Disney · designed by The Skins Factory*. Publishers come from each skin's own copyright line, with corrections in
+`src\WebSkinPlayer\Skins\SkinCatalog.json`.
 
 ## Modes (as in WMP)
 
@@ -50,6 +58,10 @@ Other shortcuts: Ctrl+P play/pause, Ctrl+S stop, Ctrl+B / Ctrl+F previous / next
 In full mode, double-click the visualizer (or press Alt+Enter) for full screen. Esc exits full screen.
 
 The player follows whatever is playing. To pin one app instead, use **Source** in full mode.
+
+**Always on Top** keeps the player above other windows, in full mode and in every skin window. Switch it with the
+pin button in full mode's transport bar, or from the right-click menu of a skin, the visualizer, or the taskbar widget.
+Switch it off to let other windows cover the player again. The setting is remembered.
 
 ## The skin engine
 
@@ -90,12 +102,32 @@ errors, and so does this app; the errors are written to the log only.
 strings that some skins borrow, and the Alchemy visualizer. Without it, skins still load but those borrowed pieces
 are blank and Alchemy isn't listed.
 
+## Screen saver
+
+**Screen Saver** (in the right-click menu of the visualizer, a skin, or the taskbar widget) turns on the visualizer
+screen saver. Once the PC has been idle for the chosen time (1 to 30 minutes), every monitor shows a random
+visualization, switching to another one every 15 seconds to 5 minutes, with the current track fading in at the bottom.
+Moving the mouse or pressing a key closes it. **Lock the PC When It Closes** locks Windows as it closes, like a
+screen saver with "On resume, display logon screen". **Start Now** shows it straight away.
+
+Like Windows' own screen saver it stays away while a full-screen game, presentation or video is running, and while
+the PC is locked. Music playing in a browser tab doesn't hold it back. Windows doesn't let apps draw on the lock
+screen itself, which is why this is a screen saver.
+
 ## Visualizations
 
 - **Alchemy:** the real WMP plug-in from `mpvis.dll`, hosted and fed system audio.
 - **Bars and Waves:** Bars, Ocean Mist, Fire Storm, and Scope. **Battery:** 8 presets. **Album Art.**
   WMP's own Bars and Battery are locked inside `wmp.dll`, so these are faithful recreations.
 - Any other WMP visualization plug-in registered on the PC appears automatically.
+- **Old 32-bit plug-ins** from the WMP 7 to 10 era (WMP 8's original Ambience, Battery, Particle, Plenoptic and Spikes,
+  3D Alchemy, the Averett & Associates packs, community ones) run in a small 32-bit helper (`VisHost32`), because a
+  64-bit app can't load them. Add them with **Add Visualization…** in the visualizer's right-click menu: pick the
+  plug-in's `.dll`, or a `.zip` containing it. Nothing is registered with Windows and no admin rights are needed;
+  each one is test-rendered first and only added if it draws. Many are on
+  [WMP Goodies](https://sites.google.com/view/wmpgoodies/visualizations); their old installers are self-extracting
+  archives that 7-Zip opens. Ones that draw only in their own DirectX window (WMP 9 and 10, Grind, Terminator III)
+  aren't supported yet.
 
 Audio for the visualizers is captured with WASAPI loopback, so they react to everything Windows plays.
 
@@ -154,6 +186,10 @@ check it for updates; local builds don't.
 - `--debug-input` logs every press and what it hit. `--widget` starts collapsed into the taskbar widget.
   `--exit` closes a running copy (the installer uses it).
 - `WEBSKINPLAYER_DATA=<folder>` runs with a separate data folder, e.g. to try a first run on a clean profile.
+  `WEBSKINPLAYER_TESTSIGNAL=1` feeds made-up music to the visualizers.
+- `WebSkinPlayer.exe --import-vis <dll|zip|folder> [label]` adds visualization plug-ins and writes
+  `Visualizations\import-report.txt`. Automation also has `saver start|stop|next|show <id>|?` and `capturesaver file.png`.
+- `WebSkinPlayer.VisHost32.exe probe <dll>` describes a plug-in DLL; `snapshot <dll> <clsid> <out.bmp>` test-renders one.
 
 ### Layout (`src\WebSkinPlayer`)
 
@@ -163,6 +199,8 @@ check it for updates; local builds don't.
 - `Skins\`: the package/resource/parser layers, the object model, `Scripting\` (Jint bridge and JScript
   compatibility), `Elements\`, the views, windows and themes, and the archive.org skin downloader.
 - `UI\`: the full-mode window and the taskbar widget.
+- `src\WebSkinPlayer.VisHost32`: the 32-bit plug-in helper (shared-memory protocol in `Serve.cs`, mirrored by
+  `Visualization\Hosted32Visualization.cs`).
 - `installer\`: the Inno Setup script. `tools\`: the release build and icon scripts.
 - `spikes\`: throwaway experiments. `SmtcTestSource` is a fake media session with a quiet tone, used for tests.
 

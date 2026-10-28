@@ -94,12 +94,28 @@
                     <RadioButton x:Name="SkinsOnline" GroupName="SkinSource" Content="Get more skins" Style="{StaticResource TabButton}" Padding="10,4"
                                  Checked="OnSkinSourceChanged"/>
                 </StackPanel>
-                <TextBox x:Name="SkinSearch" DockPanel.Dock="Top" Margin="8" Padding="4,3" TextChanged="OnSkinSearch"
+                <TextBox x:Name="SkinSearch" DockPanel.Dock="Top" Margin="8,8,8,6" Padding="4,3" TextChanged="OnSkinSearch"
                          Background="#FF1A1E24" Foreground="{StaticResource TextMain}" BorderBrush="#FF39414D" ToolTip="Search skins"/>
+                <ComboBox x:Name="PublisherFilter" DockPanel.Dock="Top" Margin="8,0,8,6" SelectionChanged="OnPublisherFilter"
+                          ToolTip="Show one publisher's skins"/>
                 <TextBlock x:Name="SkinCount" DockPanel.Dock="Bottom" Margin="10,4,10,8" Foreground="{StaticResource TextDim}" FontSize="11"/>
                 <ListBox x:Name="SkinList" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextMain}"
                          SelectionChanged="OnSkinSelected" MouseDoubleClick="OnSkinDoubleClick"
-                         VirtualizingPanel.IsVirtualizing="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.IsVirtualizingWhenGrouping="True"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate>
+                                    <TextBlock Margin="6,10,6,3" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Accent}">
+                                        <Run Text="{Binding Name, Mode=OneWay}"/><Run Text="{Binding ItemCount, Mode=OneWay, StringFormat='  {0}'}"
+                                                                                      Foreground="{StaticResource TextDim}"/>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListBox.GroupStyle>
+                </ListBox>
             </DockPanel>
             <Grid Grid.Column="1" Margin="18">
                 <Grid.RowDefinitions>
@@ -173,6 +189,7 @@
                     <Slider x:Name="VolumeBar" Width="90" Minimum="0" Maximum="100" VerticalAlignment="Center" ValueChanged="OnVolumeChanged"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0">
+                    <Button x:Name="OnTopBtn" Content="&#xE718;" Style="{StaticResource TransportButton}" Click="OnAlwaysOnTop"/>
                     <Button Content="&#xE7F4;" Style="{StaticResource TransportButton}"
                             ToolTip="Turn into taskbar widget (Ctrl+3)" Click="OnWidgetMode"/>
                     <Button Content="&#xE8A7;" Style="{StaticResource TransportButton}"

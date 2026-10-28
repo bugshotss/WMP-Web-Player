@@ -62,6 +62,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [InstallDelete]
 ; The bundled .NET runtime ships a helper named after its version; drop the old one on upgrade.
 Type: files; Name: "{app}\mscordaccore_amd64_amd64_*.dll"
+Type: files; Name: "{app}\VisHost32\mscordaccore_x86_x86_*.dll"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

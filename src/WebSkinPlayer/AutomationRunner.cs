@@ -96,6 +96,31 @@ public static class AutomationRunner
                     case "tab":
                         App.Modes.FullWindow?.SelectTab(arg);
                         break;
+                    case "ontop": // ontop on|off|toggle switches Always on Top; "ontop ?" logs each window
+                        if (arg == "?")
+                            Log.Write($"[auto] ontop setting={App.Modes.AlwaysOnTop} windows: " + string.Join(", ", Application.Current.Windows.Cast<Window>()
+                                .Where(w => w.IsVisible && w.GetType().Name != "Window").Select(w => $"{w.GetType().Name}={(w.Topmost ? "top" : "normal")}")));
+                        else App.Modes.SetAlwaysOnTop(arg == "toggle" ? !App.Modes.AlwaysOnTop : arg == "on");
+                        break;
+                    case "capturesaver": // capturesaver file.png : the first screen saver window
+                        if (Application.Current.Windows.OfType<UI.ScreenSaverWindow>().FirstOrDefault()?.Content is FrameworkElement saverRoot)
+                        {
+                            var rtb = new RenderTargetBitmap((int)saverRoot.ActualWidth, (int)saverRoot.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                            rtb.Render(saverRoot);
+                            var enc = new PngBitmapEncoder();
+                            enc.Frames.Add(BitmapFrame.Create(rtb));
+                            using var fs = File.Create(arg);
+                            enc.Save(fs);
+                        }
+                        break;
+                    case "saver": // saver start|stop|next|? : the visualizer screen saver
+                        if (App.ScreenSaver is not { } saver) break;
+                        if (arg == "start") saver.Start(manual: true);
+                        else if (arg == "stop") saver.Stop(lockAfter: false);
+                        else if (arg == "next") saver.Next();
+                        else if (arg.StartsWith("show ", StringComparison.OrdinalIgnoreCase)) saver.Show(arg[5..].Trim(), 0);
+                        else Log.Write($"[auto] saver running={saver.IsRunning} showing={saver.ShowingName} windows={Application.Current.Windows.OfType<UI.ScreenSaverWindow>().Count()} {saver.Diagnostics}");
+                        break;
                     case "uiclick": // uiclick ButtonName (full mode)
                         if (App.Modes.FullWindow?.FindName(arg) is System.Windows.Controls.Primitives.ButtonBase b)
                             b.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));

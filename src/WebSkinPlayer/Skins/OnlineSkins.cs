@@ -11,6 +11,9 @@ public sealed class OnlineSkin
     public long Size { get; init; }
     public bool Installed { get; set; }
     public string DisplayName => SkinEntry.PrettyName(FileName);
+    public string Publisher => SkinCatalog.Lookup(FileName).Publisher;
+    public string? Designer => SkinCatalog.Lookup(FileName).Designer;
+    public string PublisherSort => SkinCatalog.SortKey(Publisher);
     /// <summary>Screenshot of the skin taken in WMP, published with it.</summary>
     public string PreviewUrl => OnlineSkins.FileUrl(Path.ChangeExtension(FileName, ".png"));
     public override string ToString() => Installed ? DisplayName + "   ✓" : DisplayName;
