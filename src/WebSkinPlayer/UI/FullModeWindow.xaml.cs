@@ -240,10 +240,10 @@ public partial class FullModeWindow : Window
         menu.IsOpen = true;
     }
 
-    /// <summary>Adds WMP visualization plug-ins from a DLL or a zip (old installers need unpacking first).</summary>
+    /// <summary>Adds WMP visualization plug-ins from a DLL, a zip or an .msi (other installers need unpacking first).</summary>
     void AddVisualization()
     {
-        var dlg = new OpenFileDialog { Filter = "WMP visualization plug-ins (*.dll;*.zip)|*.dll;*.zip", Multiselect = true, Title = "Add visualizations" };
+        var dlg = new OpenFileDialog { Filter = "WMP visualization plug-ins (*.dll;*.zip;*.msi)|*.dll;*.zip;*.msi", Multiselect = true, Title = "Add visualizations" };
         if (dlg.ShowDialog(this) != true) return;
         Cursor = Cursors.Wait;
         var report = new List<string>();

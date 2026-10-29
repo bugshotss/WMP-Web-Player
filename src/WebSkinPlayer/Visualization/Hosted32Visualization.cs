@@ -38,14 +38,17 @@ public sealed unsafe class Hosted32Visualization : IVisualization
         set => _preset = Math.Clamp(value, 0, Math.Max(0, _entry.Presets.Count - 1));
     }
 
-    void Start()
+    void Start(int width, int height)
     {
         string name = $"WebSkinPlayer.Vis.{Environment.ProcessId}.{Interlocked.Increment(ref s_count)}";
         _map = MemoryMappedFile.CreateNew(name, PixelsOffset + (long)MaxWidth * MaxHeight * 4);
         _view = _map.CreateViewAccessor();
         _view.SafeMemoryMappedViewHandle.AcquirePointer(ref _base);
+        // The size is there before the helper starts: DirectX plug-ins size their device to the first window.
+        ((int*)_base)[1] = width;
+        ((int*)_base)[2] = height;
         _input = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".in");
-        var psi = new ProcessStartInfo(PluginLibrary.HostPath, $"serve \"{_entry.DllPath}\" {_entry.Clsid} {name} {Environment.ProcessId}")
+        var psi = new ProcessStartInfo(PluginLibrary.HostPath, $"serve \"{_entry.DllPath}\" {_entry.Clsid} {name} {Environment.ProcessId} {_entry.Output}")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -60,7 +63,7 @@ public sealed unsafe class Hosted32Visualization : IVisualization
         if (_failed) { target.Clear(0); return; }
         try
         {
-            if (_host == null) Start();
+            if (_host == null) Start(target.Width, target.Height);
             int* header = (int*)_base;
             header[1] = target.Width;
             header[2] = target.Height;

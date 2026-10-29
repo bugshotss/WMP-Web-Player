@@ -6,7 +6,11 @@ using System.Text.RegularExpressions;
 
 namespace WebSkinPlayer.Visualization;
 
-public sealed record PluginEntry(string Id, string Title, string Clsid, string DllPath, IReadOnlyList<string> Presets, string Source);
+/// <summary>
+/// <see cref="Output"/> says where the plug-in's picture shows up: "dc" (the DC handed to Render), "window" (DirectX
+/// plug-ins draw onto the window WMP gave them) or "windowed" (IWMPEffects2::RenderWindowed). Found when it's added.
+/// </summary>
+public sealed record PluginEntry(string Id, string Title, string Clsid, string DllPath, IReadOnlyList<string> Presets, string Source, string Output);
 
 /// <summary>
 /// WMP visualization plug-ins added to the player (%LOCALAPPDATA%\WebSkinPlayer\Visualizations). They're
@@ -32,6 +36,7 @@ public static class PluginLibrary
         public string Dll { get; set; } = "";
         public List<string> Presets { get; set; } = new();
         public string Source { get; set; } = "";
+        public string Output { get; set; } = "dc";
     }
 
     static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
@@ -43,14 +48,14 @@ public static class PluginLibrary
             // The skin tests stay deterministic: no helper processes behind every preview.
             if (Sandbox.Enabled || !File.Exists(ListPath) || !HostAvailable) return new();
             var stored = JsonSerializer.Deserialize<List<Stored>>(File.ReadAllText(ListPath), Json) ?? new();
-            return stored.Select(s => new PluginEntry(s.Id, s.Title, s.Clsid, Path.Combine(Folder, s.Dll), s.Presets, s.Source))
+            return stored.Select(s => new PluginEntry(s.Id, s.Title, s.Clsid, Path.Combine(Folder, s.Dll), s.Presets, s.Source, s.Output))
                          .Where(e => File.Exists(e.DllPath)).ToList();
         }
         catch (Exception ex) { Log.Write("Visualization list: " + ex.Message); return new(); }
     }
 
     /// <summary>
-    /// Adds the plug-ins in <paramref name="source"/> (a .dll, a .zip, or a folder searched recursively).
+    /// Adds the plug-ins in <paramref name="source"/> (a .dll, a .zip, an .msi, or a folder searched recursively).
     /// Returns a line per visualization found, saying whether it was added.
     /// </summary>
     public static List<string> Import(string source, string label)
@@ -61,19 +66,29 @@ public static class PluginLibrary
         try
         {
             string root = source;
-            if (source.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            if (source.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || source.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
             {
                 temp = Path.Combine(Path.GetTempPath(), "WebSkinPlayer-import-" + Guid.NewGuid().ToString("N"));
-                ZipFile.ExtractToDirectory(source, temp);
+                if (source.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) ZipFile.ExtractToDirectory(source, temp);
+                else if (!UnpackMsi(source, temp)) { report.Add($"{Path.GetFileName(source)}: couldn't unpack the installer"); return report; }
                 root = temp;
             }
             var dlls = File.Exists(root) ? new List<string> { root }
                 : Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories).Where(IsPluginDll).ToList();
             var list = LoadStored();
+            var packs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var dll in dlls)
             {
-                string pack = Path.Combine(Folder, Safe(Path.GetFileNameWithoutExtension(dll)));
-                CopyPack(Path.GetDirectoryName(dll)!, pack, File.Exists(root) ? dll : null);
+                // One copy per folder: plug-ins shipped together (sharing DirectX helper DLLs) stay together.
+                string from = Path.GetDirectoryName(dll)!;
+                if (!packs.TryGetValue(from, out var pack))
+                {
+                    bool shared = dlls.Count(d => Path.GetDirectoryName(d)!.Equals(from, StringComparison.OrdinalIgnoreCase)) > 1;
+                    string name = !shared ? Path.GetFileNameWithoutExtension(dll)
+                        : Path.GetFileNameWithoutExtension(source) + (from.Equals(root, StringComparison.OrdinalIgnoreCase) ? "" : "_" + Path.GetFileName(from));
+                    pack = packs[from] = Path.Combine(Folder, Safe(name));
+                    CopyPack(from, pack, File.Exists(root) ? dll : null);
+                }
                 string copied = Path.Combine(pack, Path.GetFileName(dll));
                 var (code, json) = RunHost($"probe \"{copied}\"", 30_000);
                 if (json == null) { report.Add($"{Path.GetFileName(dll)}: no visualization found ({code})"); continue; }
@@ -83,13 +98,14 @@ public static class PluginLibrary
                     string clsid = fx.GetProperty("clsid").GetString()!;
                     string title = fx.GetProperty("title").GetString() is { Length: > 0 } t ? t.Trim() : Path.GetFileNameWithoutExtension(dll);
                     var presets = fx.GetProperty("presets").EnumerateArray().Select(p => p.GetString() ?? "").ToList();
-                    if (!Draws(copied, clsid)) { report.Add($"{title}: draws nothing here, not added"); continue; }
+                    if (FindOutput(copied, clsid) is not { } output) { report.Add($"{title}: draws nothing here, not added"); continue; }
                     list.RemoveAll(s => s.Clsid.Equals(clsid, StringComparison.OrdinalIgnoreCase));
                     title = UniqueTitle(title, dll, list);
                     list.Add(new Stored
                     {
                         Id = Regex.Replace(title, "[^A-Za-z0-9]", ""), Title = title, Clsid = clsid,
                         Dll = Path.GetRelativePath(Folder, copied), Presets = presets.Count > 0 ? presets : new() { title }, Source = label,
+                        Output = output,
                     });
                     report.Add($"{title}: added ({presets.Count} presets)");
                 }
@@ -141,19 +157,43 @@ public static class PluginLibrary
         }
     }
 
-    /// <summary>Renders a couple of seconds of test music and checks that something appeared.</summary>
-    static bool Draws(string dll, string clsid)
+    /// <summary>
+    /// Renders a couple of seconds of test music the way WMP 9 does and returns where the picture appeared (see
+    /// <see cref="PluginEntry.Output"/>), or null if nothing did. Plug-ins that draw into the DC keep doing that;
+    /// WMP 9-style ones that don't are tried with RenderWindowed (WMP's full-mode path, which some draw properly only
+    /// through: Ribbons gives a grey relief otherwise) before settling for what they put on the window.
+    /// </summary>
+    static string? FindOutput(string dll, string clsid)
+    {
+        if (Snapshot(dll, clsid, "attach") is not { } attach) return null;
+        if (attach.Lit > 0.001) return "dc";
+        if (attach.Effects2 && Snapshot(dll, clsid, "windowed") is { WindowLit: > 0.001 }) return "windowed";
+        return attach.WindowLit > 0.001 ? "window" : null;
+    }
+
+    static (double Lit, double WindowLit, bool Effects2)? Snapshot(string dll, string clsid, string mode)
     {
         string bmp = Path.Combine(Path.GetTempPath(), $"wsp-viz-{Guid.NewGuid():N}.bmp");
         try
         {
-            var (_, json) = RunHost($"snapshot \"{dll}\" {clsid} \"{bmp}\"", 30_000);
-            if (json == null) return false;
+            var (_, json) = RunHost($"snapshot \"{dll}\" {clsid} \"{bmp}\" 0 {mode}", 30_000);
+            if (json == null) return null;
             using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.GetProperty("lit").GetDouble() > 0.001;
+            var r = doc.RootElement;
+            return (r.GetProperty("lit").GetDouble(), r.GetProperty("windowLit").GetDouble(), r.GetProperty("effects2").GetBoolean());
         }
-        catch { return false; }
+        catch { return null; }
         finally { try { File.Delete(bmp); } catch { } }
+    }
+
+    /// <summary>An administrative install: Windows Installer copies the files out without installing anything.</summary>
+    static bool UnpackMsi(string msi, string folder)
+    {
+        Directory.CreateDirectory(folder);
+        var psi = new ProcessStartInfo("msiexec.exe") { UseShellExecute = false, CreateNoWindow = true };
+        foreach (var a in new[] { "/a", Path.GetFullPath(msi), "/qn", "TARGETDIR=" + folder }) psi.ArgumentList.Add(a);
+        using var p = Process.Start(psi)!;
+        return p.WaitForExit(120_000) && p.ExitCode == 0;
     }
 
     /// <summary>Plug-ins named like a built-in visualization (WMP 8's own Bars and Waves, Battery) get a suffix.</summary>

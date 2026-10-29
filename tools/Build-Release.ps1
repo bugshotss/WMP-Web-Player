@@ -37,10 +37,13 @@ Compress-Archive -Path (Join-Path $publish "*") -DestinationPath $zip
 
 $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
 if (-not $iscc) {
-    $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
-              "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+    # Machine or per-user install, any version ("Inno Setup 6", "Inno Setup 7 (32-bit)", ...), newest first.
+    $iscc = @("${env:ProgramFiles(x86)}", $env:ProgramFiles, "$env:LOCALAPPDATA\Programs") |
+        ForEach-Object { Get-ChildItem $_ -Directory -Filter "Inno Setup *" -ErrorAction SilentlyContinue } |
+        Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName "ISCC.exe" } |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
 }
-if (-not $iscc) { throw "Inno Setup 6 (ISCC.exe) not found. Install it with: winget install JRSoftware.InnoSetup" }
+if (-not $iscc) { throw "Inno Setup (ISCC.exe) not found. Install it with: winget install JRSoftware.InnoSetup" }
 $numeric = ($Version -split '[-+]')[0]
 & $iscc /Q "/DAppVersion=$Version" "/DAppVersionNumeric=$numeric" "/DSourceDir=$publish" "/DOutputDir=$Out" `
     "/DRepositoryUrl=$RepositoryUrl" (Join-Path $root "installer\WebSkinPlayer.iss")

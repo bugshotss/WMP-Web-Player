@@ -120,14 +120,28 @@ screen itself, which is why this is a screen saver.
 - **Bars and Waves:** Bars, Ocean Mist, Fire Storm, and Scope. **Battery:** 8 presets. **Album Art.**
   WMP's own Bars and Battery are locked inside `wmp.dll`, so these are faithful recreations.
 - Any other WMP visualization plug-in registered on the PC appears automatically.
-- **Old 32-bit plug-ins** from the WMP 7 to 10 era (WMP 8's original Ambience, Battery, Particle, Plenoptic and Spikes,
-  3D Alchemy, the Averett & Associates packs, community ones) run in a small 32-bit helper (`VisHost32`), because a
-  64-bit app can't load them. Add them with **Add Visualization…** in the visualizer's right-click menu: pick the
-  plug-in's `.dll`, or a `.zip` containing it. Nothing is registered with Windows and no admin rights are needed;
-  each one is test-rendered first and only added if it draws. Many are on
-  [WMP Goodies](https://sites.google.com/view/wmpgoodies/visualizations); their old installers are self-extracting
-  archives that 7-Zip opens. Ones that draw only in their own DirectX window (WMP 9 and 10, Grind, Terminator III)
-  aren't supported yet.
+- **Each skin remembers its visualization.** A skin opens with the one last shown in it; a skin you haven't used yet
+  starts with its own (or WMP's default, Bars). Pick one from the list in full mode (Ctrl+1) and it's the one the skin
+  shows when you go back. Skins that name a visualization as they switch theirs on (Kenwood sets Spikes every time it
+  leaves its song display) get the remembered one instead, once there is one. Song changes don't count as a pause and
+  resume, even when the browser reports a moment of pause between songs, so skins don't drop back from their
+  visualizer at every song. A plug-in that duplicates a built-in visualization (WMP 8's own Bars and Waves and
+  Battery) isn't listed a second time.
+- **Old 32-bit plug-ins** from the WMP 7 to 10 era (WMP 8's original Ambience, Particle, Plenoptic and Spikes,
+  3D Alchemy, the Averett & Associates packs, the Psychedelia pack, community ones) run in a small 32-bit helper
+  (`VisHost32`), because a 64-bit app can't load them. Add them with **Add Visualization…** in the visualizer's
+  right-click menu: pick the plug-in's `.dll`, a `.zip` containing it, or its `.msi` installer (unpacked, not
+  installed). Nothing is registered with Windows and no admin rights are needed; each one is test-rendered first and
+  only added if it draws. Many are on [WMP Goodies](https://sites.google.com/view/wmpgoodies/visualizations); their
+  older `.exe` installers are self-extracting archives that 7-Zip opens.
+
+  The helper treats them the way WMP 9 did: WMP 9-style plug-ins get a player object and a (hidden) window before
+  they draw, and a preset is always selected. DirectX ones that draw onto that window instead of the DC they're given
+  are copied off it. It also runs with Windows' compatibility registry virtualization, as XP-era programs do, because
+  some plug-ins open WMP's machine keys for writing just to read them. Still not working: Microsoft's WMP 9 and 10
+  promotional visualizations and the ones built on the same engine (Grind, Terminator III, Looney Tunes), which
+  present only black frames; PictureViz II, which waits on a folder dialog; Corona and Fruity, whose registration
+  fails.
 
 Audio for the visualizers is captured with WASAPI loopback, so they react to everything Windows plays.
 
@@ -187,9 +201,11 @@ check it for updates; local builds don't.
   `--exit` closes a running copy (the installer uses it).
 - `WEBSKINPLAYER_DATA=<folder>` runs with a separate data folder, e.g. to try a first run on a clean profile.
   `WEBSKINPLAYER_TESTSIGNAL=1` feeds made-up music to the visualizers.
-- `WebSkinPlayer.exe --import-vis <dll|zip|folder> [label]` adds visualization plug-ins and writes
+- `WebSkinPlayer.exe --import-vis <dll|zip|msi|folder> [label]` adds visualization plug-ins and writes
   `Visualizations\import-report.txt`. Automation also has `saver start|stop|next|show <id>|?` and `capturesaver file.png`.
-- `WebSkinPlayer.VisHost32.exe probe <dll>` describes a plug-in DLL; `snapshot <dll> <clsid> <out.bmp>` test-renders one.
+- `WebSkinPlayer.VisHost32.exe probe <dll>` describes a plug-in DLL; `snapshot <dll> <clsid> <out.bmp> [preset]
+  [dc|attach|windowed]` test-renders one and reports how much appeared in the DC (`lit`) and on its window
+  (`windowLit`). `WEBSKINPLAYER_VISHOST=<exe>` points the player at a development build of the helper.
 
 ### Layout (`src\WebSkinPlayer`)
 

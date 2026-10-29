@@ -37,13 +37,19 @@ public static class VisualizationCatalog
         list.Add(new VisDescriptor(art.Id, art.Title, null, art.Presets, () => new AlbumArtVisualization()));
         _builtInTitles.Clear();
         _builtInTitles.AddRange(list.Select(d => d.Title));
-        // Added 32-bit plug-ins (WMP 8's originals, the Plus! and Averett packs...), run by the 32-bit helper.
+        // Added 32-bit plug-ins (WMP 8's originals, the Plus! and Averett packs...), run by the 32-bit helper. One
+        // with the class id of a visualization already listed (WMP 8's own Bars and Waves and Battery) is the same
+        // visualization: listing both would show it twice when stepping through them, and skins asking for that
+        // class id get the first anyway.
         foreach (var plugin in PluginLibrary.Load())
-            if (!list.Any(d => d.Id.Equals(plugin.Id, StringComparison.OrdinalIgnoreCase)))
+            if (!list.Any(d => d.Id.Equals(plugin.Id, StringComparison.OrdinalIgnoreCase) || SameClass(d.ClassId, plugin.Clsid)))
                 list.Add(new VisDescriptor(plugin.Id, plugin.Title, plugin.Clsid, plugin.Presets, () => new Hosted32Visualization(plugin)));
         Log.Write("Visualizations: " + string.Join(", ", list.Select(v => $"{v.Title} ({v.Presets.Count})")));
         return list;
     }
+
+    static bool SameClass(string? a, string? b) =>
+        a != null && b != null && a.Trim('{', '}').Equals(b.Trim('{', '}'), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Resolve by id, title, or class id (with or without braces), as skins may use any.</summary>
     public static VisDescriptor? Find(string? key)

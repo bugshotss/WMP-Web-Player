@@ -145,6 +145,33 @@ public static unsafe class Plugin
 
     public static void SetPreset(IntPtr fx, int preset) => ((delegate* unmanaged[Stdcall]<IntPtr, int, int>)Slot(fx, 9))(fx, preset);
 
+    /// <summary>
+    /// What WMP 9 and later do with every IWMPEffects2 plug-in before it draws: hand it the player (SetCore) and
+    /// the visualization window (Create). Returns the IWMPEffects2 pointer, or zero for an IWMPEffects-only plug-in.
+    /// </summary>
+    public static IntPtr Attach(IntPtr fx, IntPtr hwnd)
+    {
+        Guid iid2 = IID_IWMPEffects2;
+        IntPtr fx2;
+        if (((delegate* unmanaged[Stdcall]<IntPtr, Guid*, IntPtr*, int>)Slot(fx, 0))(fx, &iid2, &fx2) < 0 || fx2 == IntPtr.Zero) return IntPtr.Zero;
+        ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)Slot(fx2, 14))(fx2, StubCore.Instance);
+        ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)Slot(fx2, 15))(fx2, hwnd);
+        return fx2;
+    }
+
+    /// <summary>IWMPEffects2::Destroy, then the player is taken back, as WMP does when switching visualizations.</summary>
+    public static void Detach(IntPtr fx2)
+    {
+        if (fx2 == IntPtr.Zero) return;
+        ((delegate* unmanaged[Stdcall]<IntPtr, int>)Slot(fx2, 16))(fx2);
+        ((delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)Slot(fx2, 14))(fx2, IntPtr.Zero);
+        Release(fx2);
+    }
+
+    /// <summary>IWMPEffects2::RenderWindowed: the plug-in draws into the window it was given (or its own child of it).</summary>
+    public static int RenderWindowed(IntPtr fx2, TimedLevel* levels) =>
+        ((delegate* unmanaged[Stdcall]<IntPtr, TimedLevel*, int, int>)Slot(fx2, 19))(fx2, levels, 1);
+
     public static void Release(IntPtr unknown) => ((delegate* unmanaged[Stdcall]<IntPtr, uint>)Slot(unknown, 2))(unknown);
 
     static IntPtr Slot(IntPtr obj, int index) => (*(IntPtr**)obj)[index];

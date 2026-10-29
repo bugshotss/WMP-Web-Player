@@ -4,8 +4,9 @@ using System.Text.Json;
 namespace WebSkinPlayer.VisHost32;
 
 /// <summary>
-/// WebSkinPlayer.VisHost32 probe &lt;dll&gt;                          describe the visualizations in a plug-in DLL (JSON)
-/// WebSkinPlayer.VisHost32 snapshot &lt;dll&gt; &lt;clsid&gt; &lt;out.bmp&gt;   render a few seconds of test audio and save the result
+/// WebSkinPlayer.VisHost32 probe &lt;dll&gt;                                       describe the visualizations in a plug-in DLL (JSON)
+/// WebSkinPlayer.VisHost32 snapshot &lt;dll&gt; &lt;clsid&gt; &lt;out.bmp&gt; [preset] [mode]  render a few seconds of test audio and save the result
+/// WebSkinPlayer.VisHost32 serve &lt;dll&gt; &lt;clsid&gt; &lt;map&gt; &lt;parentPid&gt; [output]   render for the player through shared memory
 /// </summary>
 static unsafe class Program
 {
@@ -13,6 +14,7 @@ static unsafe class Program
     static int Main(string[] args)
     {
         CoInitializeEx(IntPtr.Zero, 0x2 /* COINIT_APARTMENTTHREADED */);
+        Virtualization.Enable();
         try
         {
             switch (args.FirstOrDefault()?.ToLowerInvariant())
@@ -43,11 +45,11 @@ static unsafe class Program
                     return effects.Count > 0 ? 0 : 2;
                 }
                 case "snapshot" when args.Length >= 4:
-                    return Snapshot(args[1], Guid.Parse(args[2]), args[3], args.Length > 4 ? int.Parse(args[4]) : 0);
+                    return Snapshot(args[1], Guid.Parse(args[2]), args[3], args.Length > 4 ? int.Parse(args[4]) : 0, args.Length > 5 ? args[5].ToLowerInvariant() : "attach");
                 case "serve" when args.Length >= 5:
-                    return Serve.Run(args[1], Guid.Parse(args[2]), args[3], int.Parse(args[4]));
+                    return Serve.Run(args[1], Guid.Parse(args[2]), args[3], int.Parse(args[4]), args.Length > 5 ? args[5].ToLowerInvariant() : "dc");
                 default:
-                    Console.Error.WriteLine("usage: probe <dll> | snapshot <dll> <clsid> <out.bmp> [preset] | serve <dll> <clsid> <map> <parentPid>");
+                    Console.Error.WriteLine("usage: probe <dll> | snapshot <dll> <clsid> <out.bmp> [preset] [dc|attach|windowed] | serve <dll> <clsid> <map> <parentPid> [dc|window|windowed]");
                     return 64;
             }
         }
@@ -58,28 +60,69 @@ static unsafe class Program
         }
     }
 
-    static int Snapshot(string dll, Guid clsid, string outFile, int preset)
+    /// <summary>
+    /// Modes: "dc" draws into a memory DC with no window or player (WMP 7/8); "attach" first hands the plug-in the
+    /// player and a window, as WMP 9 and later do (the default); "windowed" then calls RenderWindowed instead of
+    /// Render. Reports how much showed up in the DC ("lit") and on the window ("windowLit"): DirectX plug-ins draw
+    /// onto the window whatever DC they're given. Both are sampled a few times, since a scene can be dark for a
+    /// moment, and the best is kept; the brighter picture is saved.
+    /// </summary>
+    static int Snapshot(string dll, Guid clsid, string outFile, int preset, string mode)
     {
         const int W = 640, H = 360;
         IntPtr module = Plugin.Load(dll);
         IntPtr fx = Plugin.Create(module, clsid);
         if (fx == IntPtr.Zero) { Console.Error.WriteLine("could not create the visualization"); return 3; }
         using var surface = new DibSurface(W, H);
+        using var window = mode == "dc" ? null : new HostWindow(W, H);
+        IntPtr fx2 = window != null ? Plugin.Attach(fx, window.Handle) : IntPtr.Zero;
+        bool windowed = mode == "windowed";
+        if (windowed && fx2 == IntPtr.Zero) { Console.Error.WriteLine("not an IWMPEffects2 plug-in"); return 4; }
         Plugin.MediaInfo(fx, "WebSkin Player");
-        if (preset > 0) Plugin.SetPreset(fx, preset);
+        // WMP always selects a preset before drawing; some plug-ins draw nothing until one is chosen.
+        Plugin.SetPreset(fx, preset);
         var levels = new TimedLevel();
+        using var shot = new DibSurface(W, H);
+        using var best = new DibSurface(W, H);
         int failures = 0;
+        double lit = 0, windowLit = window != null ? 0 : -1, bestLit = -1;
         for (int frame = 0; frame < 150; frame++)
         {
             TestSignal.Fill(&levels, frame);
-            if (Plugin.Render(fx, &levels, surface.Dc, W, H) < 0) failures++;
+            HostWindow.Pump();
+            int hr = windowed ? Plugin.RenderWindowed(fx2, &levels) : Plugin.Render(fx, &levels, surface.Dc, W, H);
+            if (hr < 0) failures++;
             Thread.Sleep(15);
+            if (frame % 30 != 29) continue;
+            HostWindow.Pump();
+            surface.Flush();
+            if (!windowed) Keep(surface, ref lit);
+            if (window == null) continue;
+            window.CaptureTo(shot);
+            shot.Flush();
+            Keep(shot, ref windowLit);
         }
-        surface.Flush();
-        double lit = surface.LitShare();
-        surface.SaveBmp(outFile);
+
+        void Keep(DibSurface from, ref double share)
+        {
+            double s = from.LitShare();
+            share = Math.Max(share, s);
+            if (s <= bestLit) return;
+            bestLit = s;
+            Buffer.MemoryCopy(from.Bits, best.Bits, (long)W * H * 4, (long)W * H * 4);
+        }
+        best.SaveBmp(outFile);
+        Plugin.Detach(fx2);
         Plugin.Release(fx);
-        WriteJson(w => { w.WriteString("clsid", clsid.ToString("B")); w.WriteNumber("lit", lit); w.WriteNumber("failures", failures); });
+        WriteJson(w =>
+        {
+            w.WriteString("clsid", clsid.ToString("B"));
+            w.WriteString("mode", mode);
+            w.WriteBoolean("effects2", fx2 != IntPtr.Zero);
+            w.WriteNumber("lit", lit);
+            w.WriteNumber("windowLit", windowLit);
+            w.WriteNumber("failures", failures);
+        });
         return 0;
     }
 

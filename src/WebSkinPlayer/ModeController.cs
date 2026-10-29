@@ -1,6 +1,7 @@
 using System.Windows;
 using WebSkinPlayer.Skins;
 using WebSkinPlayer.UI;
+using WebSkinPlayer.Visualization;
 
 namespace WebSkinPlayer;
 
@@ -29,7 +30,11 @@ public sealed class ModeController
         _full.Show();
         if (_full.WindowState == WindowState.Minimized) _full.WindowState = WindowState.Normal;
         _full.Activate();
+        _effectOwner = null;
         CloseTheme();
+        // Full mode is where visualizations are picked from a list: the choice goes to the skin you return to.
+        RestoredSkin = null;
+        _effectOwner = App.Services.Settings.CurrentSkin is { } skin ? SkinTheme.KeyFor(skin) : null;
         _lastWasSkin = false;
         App.Services.Settings.StartInSkinMode = false;
         App.Services.Settings.StartInWidgetMode = false;
@@ -50,6 +55,19 @@ public sealed class ModeController
     /// <summary>Loads a skin and switches to it. Returns false (and stays put) if it can't load.</summary>
     public bool ShowSkin(string path)
     {
+        var vis = App.Services.Visualizations;
+        var (wasEffect, wasPreset, wasOwner, wasRestored) = (vis.EffectId, vis.Preset, _effectOwner, RestoredSkin);
+        void StayPut()
+        {
+            _effectOwner = null;
+            vis.SetEffect(wasEffect, wasPreset);
+            (_effectOwner, RestoredSkin) = (wasOwner, wasRestored);
+        }
+
+        // The skin starts with its own visualization, so it's in place before the skin's scripts read it.
+        string owner = SkinTheme.KeyFor(path);
+        RestoreEffect(owner, firstTime: VisualizationCatalog.Default.Id);
+        _effectOwner = null;
         SkinTheme theme;
         try
         {
@@ -58,6 +76,7 @@ public sealed class ModeController
         catch (Exception ex)
         {
             Log.Write($"Skin load failed ({path}): {ex}");
+            StayPut();
             MessageBox.Show($"This skin couldn't be loaded:\n{System.IO.Path.GetFileName(path)}\n\n{ex.Message}", "WebSkin Player", MessageBoxButton.OK, MessageBoxImage.Warning);
             if (_full == null && _theme == null) ShowFullMode();
             return false;
@@ -73,19 +92,28 @@ public sealed class ModeController
         };
         try
         {
+            _effectOwner = owner;
             theme.OpenMainView();
         }
         catch (Exception ex)
         {
             Log.Write($"Skin open failed ({path}): {ex}");
             _theme = old;
+            _effectOwner = null;
             theme.Close();
+            StayPut();
             MessageBox.Show($"This skin couldn't be opened:\n{ex.Message}", "WebSkin Player", MessageBoxButton.OK, MessageBoxImage.Warning);
             if (_full == null && _theme == null) ShowFullMode();
             return false;
         }
 
+        // The old skin's onClose scripts often save "their" visualization (mediacenter.effectType = ...): that
+        // belongs to the old skin, not this one.
+        _effectOwner = null;
+        var (keepEffect, keepPreset) = (vis.EffectId, vis.Preset);
         old?.Close();
+        vis.SetEffect(keepEffect, keepPreset);
+        _effectOwner = owner;
         _collapsed = false;
         _lastWasSkin = true;
         App.Services.Settings.CurrentSkin = path;
@@ -102,6 +130,45 @@ public sealed class ModeController
         var t = _theme;
         _theme = null;
         t?.Close();
+    }
+
+    // ---- visualization per skin ------------------------------------------------------------
+
+    /// <summary>
+    /// Whose visualization changes are being remembered: the current skin (in full mode, the skin last used, so a
+    /// visualization picked there is the one that skin shows next), or nobody mid-switch.
+    /// </summary>
+    string? _effectOwner;
+
+    /// <summary>The skin whose remembered visualization is showing; it outranks the visualization the skin names itself.</summary>
+    public string? RestoredSkin { get; private set; }
+
+    /// <summary>The skin showing has a visualization remembered (one was shown in it before).</summary>
+    public bool Remembers(SkinTheme theme) => theme == _theme && App.Services.Settings.SkinEffects.ContainsKey(theme.Key);
+
+    public ModeController()
+    {
+        App.Services.Visualizations.EffectChanged += () =>
+        {
+            if (_effectOwner == null) return;
+            var vis = App.Services.Visualizations;
+            App.Services.Settings.SkinEffects[_effectOwner] = new SkinEffect { EffectId = vis.EffectId, Preset = vis.Preset };
+        };
+    }
+
+    /// <summary>
+    /// Shows the visualization last used in skin <paramref name="owner"/>. A skin never used before starts at
+    /// <paramref name="firstTime"/>, unless it names its own visualization.
+    /// </summary>
+    void RestoreEffect(string owner, string firstTime)
+    {
+        _effectOwner = null;
+        var vis = App.Services.Visualizations;
+        bool remembered = App.Services.Settings.SkinEffects.TryGetValue(owner, out var last) && VisualizationCatalog.Find(last.EffectId) != null;
+        if (remembered) vis.SetEffect(last!.EffectId, last.Preset);
+        else vis.SetEffect(firstTime, 0);
+        RestoredSkin = remembered ? owner : null;
+        _effectOwner = owner;
     }
 
     // ---- taskbar widget --------------------------------------------------------------------

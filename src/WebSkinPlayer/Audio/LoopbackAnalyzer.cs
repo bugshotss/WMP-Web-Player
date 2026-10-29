@@ -39,7 +39,11 @@ public sealed class LoopbackAnalyzer : IDisposable, IMMNotificationClient
     const int FftSize = 2048;
     const int RingSize = 8192;
 
+    // _gate guards the ring buffer (capture thread and UI thread). _lifecycle serializes starting and stopping the
+    // capture. Stopping joins the capture thread, which may be waiting on _gate in OnData, so it must never happen
+    // while _gate is held: that deadlocked the UI thread on the next Analyze.
     readonly object _gate = new();
+    readonly object _lifecycle = new();
     readonly float[] _ringL = new float[RingSize], _ringR = new float[RingSize];
     long _written;
     long _lastDataTicks;
@@ -68,30 +72,50 @@ public sealed class LoopbackAnalyzer : IDisposable, IMMNotificationClient
 
     void Start()
     {
-        lock (_gate)
+        lock (_lifecycle)
         {
             if (_disposed) return;
+            var old = _capture;
+            _capture = null;
+            Retire(old);
             try
             {
-                _capture?.Dispose();
-                _capture = new WasapiLoopbackCapture();
-                _sampleRate = _capture.WaveFormat.SampleRate;
-                _capture.DataAvailable += OnData;
-                _capture.RecordingStopped += (_, e) =>
-                {
-                    if (e.Exception != null) Log.Write("Loopback stopped: " + e.Exception.Message);
-                    ScheduleRestart();
-                };
-                _capture.StartRecording();
-                Log.Write($"Loopback capture: {_capture.WaveFormat}");
+                var capture = new WasapiLoopbackCapture();
+                _sampleRate = capture.WaveFormat.SampleRate;
+                capture.DataAvailable += OnData;
+                capture.RecordingStopped += OnStopped;
+                _capture = capture;
+                capture.StartRecording();
+                Log.Write($"Loopback capture: {capture.WaveFormat}");
             }
             catch (Exception ex)
             {
                 Log.Write("Loopback start failed: " + ex.Message);
+                Retire(_capture);
                 _capture = null;
                 ScheduleRestart();
             }
         }
+    }
+
+    /// <summary>
+    /// Stops a capture we're done with. Its handlers come off first: stopping it raises RecordingStopped, and
+    /// answering that with a restart is what kept the capture restarting every 1.5 s.
+    /// </summary>
+    void Retire(WasapiLoopbackCapture? capture)
+    {
+        if (capture == null) return;
+        capture.DataAvailable -= OnData;
+        capture.RecordingStopped -= OnStopped;
+        try { capture.Dispose(); } catch (Exception ex) { Log.Write("Loopback stop failed: " + ex.Message); }
+    }
+
+    /// <summary>The current capture ended on its own (device unplugged, audio service restarted): start again.</summary>
+    void OnStopped(object? sender, StoppedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, _capture)) return;
+        if (e.Exception != null) Log.Write("Loopback stopped: " + e.Exception.Message);
+        ScheduleRestart();
     }
 
     void ScheduleRestart()
@@ -103,8 +127,7 @@ public sealed class LoopbackAnalyzer : IDisposable, IMMNotificationClient
 
     void OnData(object? sender, WaveInEventArgs e)
     {
-        var cap = _capture;
-        if (cap == null || e.BytesRecorded == 0) return;
+        if (sender is not WasapiCapture cap || e.BytesRecorded == 0) return;
         var fmt = cap.WaveFormat;
         int channels = fmt.Channels;
         int bytesPerSample = fmt.BitsPerSample / 8;
@@ -261,12 +284,11 @@ public sealed class LoopbackAnalyzer : IDisposable, IMMNotificationClient
 
     public void Dispose()
     {
-        lock (_gate)
+        lock (_lifecycle)
         {
             _disposed = true;
             try { _enumerator.UnregisterEndpointNotificationCallback(this); } catch { }
-            try { _capture?.StopRecording(); } catch { }
-            _capture?.Dispose();
+            Retire(_capture);
             _capture = null;
         }
     }

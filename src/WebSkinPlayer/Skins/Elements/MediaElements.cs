@@ -56,10 +56,12 @@ public class EffectsElement : SkinElement
     public override void OnLoaded()
     {
         var svc = App.Services.Visualizations;
-        // Unbound effects follow the global visualization choice.
-        string type = GetString("currenteffecttype");
-        if (type.Length == 0) type = GetString("effecttype");
-        int preset = HasValue("currentpreset") ? GetInt("currentpreset") : HasValue("preset") ? GetInt("preset") : svc.Preset;
+        // Unbound effects follow the global visualization choice, and so does every effect once the skin has a
+        // remembered one (the visualization last shown in it outranks the one it names).
+        bool remembered = App.Modes?.RestoredSkin == View.Theme.Key;
+        string type = remembered ? "" : GetString("currenteffecttype");
+        if (type.Length == 0 && !remembered) type = GetString("effecttype");
+        int preset = remembered ? svc.Preset : HasValue("currentpreset") ? GetInt("currentpreset") : HasValue("preset") ? GetInt("preset") : svc.Preset;
         var d = VisualizationCatalog.Find(type) ?? svc.Current;
         bool isAlias = type.Length > 0 && !type.Equals(EffectKey(d), StringComparison.OrdinalIgnoreCase) && !type.Equals(d.Id, StringComparison.OrdinalIgnoreCase);
         Apply(d, preset, notify: false, alias: isAlias && VisualizationCatalog.Find(type) != null ? type : null);
@@ -94,10 +96,26 @@ public class EffectsElement : SkinElement
         View.InvalidateVisual();
     }
 
+    /// <summary>Frames drawn since the visualizer last came into view.</summary>
+    int _framesShown;
+
+    /// <summary>
+    /// A skin switching its visualizer on often names one as it does (Kenwood sets "Spikes" each time it changes
+    /// from its song display to the visualizer). Once the skin has a visualization remembered, that comes back
+    /// instead; one chosen while the visualizer is already showing (a skin's own visualization menu) still applies.
+    /// </summary>
+    bool KeepsRemembered => (!IsEffectivelyVisible || _framesShown == 0) && App.Modes?.Remembers(View.Theme) == true;
+
     protected override void OnPropertyChanged(string name)
     {
         if (name == "visible") UpdateSubscription();
         if (_applying) return;
+        if (name is "currenteffecttype" or "effecttype" or "currentpreset" or "preset" && KeepsRemembered)
+        {
+            var svc = App.Services.Visualizations;
+            Apply(svc.Current, svc.Preset, notify: true);
+            return;
+        }
         if (name is "currenteffecttype" or "effecttype")
         {
             string requested = GetString(name);
@@ -139,8 +157,8 @@ public class EffectsElement : SkinElement
     void UpdateSubscription()
     {
         bool want = IsEffectivelyVisible && View.IsOpen;
-        if (want && !_subscribed) { App.Services.Visualizations.Subscribe(OnFrame); _subscribed = true; }
-        else if (!want && _subscribed) { App.Services.Visualizations.Unsubscribe(OnFrame); _subscribed = false; }
+        if (want && !_subscribed) { App.Services.Visualizations.Subscribe(OnFrame); _subscribed = true; _framesShown = 0; }
+        else if (!want && _subscribed) { App.Services.Visualizations.Unsubscribe(OnFrame); _subscribed = false; _framesShown = 0; }
     }
 
     public void RefreshSubscription() => UpdateSubscription();
@@ -148,6 +166,7 @@ public class EffectsElement : SkinElement
     void OnFrame(VisFrame frame)
     {
         if (!IsEffectivelyVisible) { UpdateSubscription(); return; }
+        if (_framesShown < int.MaxValue) _framesShown++;
         var dpi = VisualTreeHelper.GetDpi(View.Surface);
         Renderer.Resize((int)(Math.Max(1, Width) * dpi.DpiScaleX), (int)(Math.Max(1, Height) * dpi.DpiScaleY));
         Renderer.Render(frame, App.Services.Visualizations.Context);

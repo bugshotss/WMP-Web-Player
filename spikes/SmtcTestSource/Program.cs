@@ -1,6 +1,8 @@
 ﻿// Test media source: plays a quiet synthesized loop through Windows.Media.Playback so it shows up
 // as a System Media Transport Controls session (like Chrome does for SoundCloud).
-// Usage: SmtcTestSource [seconds] [volume0to1]
+// Usage: SmtcTestSource [seconds] [volume0to1] [songEverySeconds]
+// songEverySeconds: change track SoundCloud-style (Paused for 0.2 s, then Playing the next title) that often; the
+// third change is a real pause (3 s) instead.
 using Windows.Media;
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -39,7 +41,20 @@ player.Play();
 await Task.Delay(500);
 SetMeta();
 Console.WriteLine($"Playing for {seconds}s at volume {volume}");
-await Task.Delay(TimeSpan.FromSeconds(seconds));
+int songEvery = args.Length > 2 ? int.Parse(args[2]) : 0;
+var end = DateTime.Now.AddSeconds(seconds);
+for (int change = 1; songEvery > 0 && DateTime.Now.AddSeconds(songEvery) < end; change++)
+{
+    await Task.Delay(TimeSpan.FromSeconds(songEvery));
+    bool realPause = change == 3;
+    player.Pause();
+    Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff} {(realPause ? "real pause" : "song change")}");
+    await Task.Delay(realPause ? 3000 : 200);
+    if (!realPause) { track++; SetMeta(); }
+    player.Play();
+}
+var left = end - DateTime.Now;
+if (left > TimeSpan.Zero) await Task.Delay(left);
 player.Pause();
 player.Dispose();
 

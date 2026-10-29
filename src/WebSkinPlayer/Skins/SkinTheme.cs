@@ -29,7 +29,10 @@ public sealed class SkinTheme
     readonly bool _preview;
     bool _closed;
 
-    string PrefKey => System.IO.Path.GetFileName(Path).ToLowerInvariant();
+    /// <summary>The skin's settings key (its file name): preferences and its remembered visualization.</summary>
+    public string Key => KeyFor(Path);
+    public static string KeyFor(string path) => System.IO.Path.GetFileName(path).ToLowerInvariant();
+    string PrefKey => Key;
 
     SkinTheme(string path, bool preview)
     {

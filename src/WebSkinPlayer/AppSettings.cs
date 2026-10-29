@@ -11,6 +11,12 @@ public sealed class WindowPlacement
     public double Height { get; set; } = double.NaN;
 }
 
+public sealed class SkinEffect
+{
+    public string EffectId { get; set; } = "";
+    public int Preset { get; set; }
+}
+
 /// <summary>User settings persisted as JSON next to the log.</summary>
 public sealed class AppSettings
 {
@@ -39,6 +45,8 @@ public sealed class AppSettings
     public Dictionary<string, WindowPlacement> SkinWindows { get; set; } = new();
     /// <summary>theme.savePreference storage, per skin file.</summary>
     public Dictionary<string, Dictionary<string, string>> SkinPreferences { get; set; } = new();
+    /// <summary>The visualization last shown in each skin (key: skin file, lower case); full mode's choice goes to the last skin.</summary>
+    public Dictionary<string, SkinEffect> SkinEffects { get; set; } = new();
     /// <summary>Global mediacenter-style flags skins toggle (showTitles, showEffects...).</summary>
     public Dictionary<string, string> MediaCenter { get; set; } = new();
 

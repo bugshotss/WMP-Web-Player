@@ -26,7 +26,9 @@ jobs:
       - name: Install Inno Setup
         shell: pwsh
         run: |
-          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y }
+          $found = @("${env:ProgramFiles(x86)}", $env:ProgramFiles) | ForEach-Object { Get-ChildItem $_ -Directory -Filter "Inno Setup *" -ErrorAction SilentlyContinue } |
+            Where-Object { Test-Path (Join-Path $_.FullName "ISCC.exe") }
+          if (-not $found) { choco install innosetup --no-progress -y }
 
       - name: Work out the version
         id: version
