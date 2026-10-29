@@ -72,6 +72,9 @@ public static class AutomationRunner
                     case "vis":
                         App.Services.Visualizations.SetEffect(parts.Length > 1 ? arg.Split(' ')[0] : null, n.Length > 1 ? (int)n[1] : 0);
                         break;
+                    case "choose": // choose <id> [preset] : as picking it from the right-click Visualizations menu
+                        App.Services.Visualizations.Choose(arg.Split(' ')[0], n.Length > 1 ? (int)n[1] : 0);
+                        break;
                     case "capture":
                         if (view != null) Capture(view, arg);
                         break;

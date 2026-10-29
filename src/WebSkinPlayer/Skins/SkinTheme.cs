@@ -240,7 +240,7 @@ public sealed class SkinTheme
             for (int i = 0; i < d.Presets.Count; i++)
             {
                 int preset = i;
-                sub.Items.Add(Item(d.Presets[i], () => vis.SetEffect(d.Id, preset), true, vis.EffectId == d.Id && vis.Preset == i));
+                sub.Items.Add(Item(d.Presets[i], () => vis.Choose(d.Id, preset), true, vis.EffectId == d.Id && vis.Preset == i));
             }
             visMenu.Items.Add(sub);
         }

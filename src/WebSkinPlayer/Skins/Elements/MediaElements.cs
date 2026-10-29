@@ -66,10 +66,19 @@ public class EffectsElement : SkinElement
         bool isAlias = type.Length > 0 && !type.Equals(EffectKey(d), StringComparison.OrdinalIgnoreCase) && !type.Equals(d.Id, StringComparison.OrdinalIgnoreCase);
         Apply(d, preset, notify: false, alias: isAlias && VisualizationCatalog.Find(type) != null ? type : null);
         UpdateSubscription();
+        svc.Chosen += OnChosen;
+    }
+
+    /// <summary>A visualization picked from the player's own lists (the skin's right-click menu) shows here, as in WMP.</summary>
+    void OnChosen()
+    {
+        var svc = App.Services.Visualizations;
+        Apply(svc.Current, svc.Preset, notify: true);
     }
 
     public override void OnUnloaded()
     {
+        App.Services.Visualizations.Chosen -= OnChosen;
         if (_subscribed) App.Services.Visualizations.Unsubscribe(OnFrame);
         _subscribed = false;
         Renderer.Dispose();
@@ -98,13 +107,27 @@ public class EffectsElement : SkinElement
 
     /// <summary>Frames drawn since the visualizer last came into view.</summary>
     int _framesShown;
+    bool? _keepRemembered;
 
     /// <summary>
     /// A skin switching its visualizer on often names one as it does (Kenwood sets "Spikes" each time it changes
     /// from its song display to the visualizer). Once the skin has a visualization remembered, that comes back
     /// instead; one chosen while the visualizer is already showing (a skin's own visualization menu) still applies.
+    /// Decided once per script run, so a skin naming an effect and then its preset counts as one choice.
     /// </summary>
-    bool KeepsRemembered => (!IsEffectivelyVisible || _framesShown == 0) && App.Modes?.Remembers(View.Theme) == true;
+    bool KeepsRemembered
+    {
+        get
+        {
+            if (IsEffectivelyVisible && _framesShown > 0) return false;
+            if (_keepRemembered == null)
+            {
+                _keepRemembered = App.Modes?.Remembers(View.Theme) == true;
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => _keepRemembered = null);
+            }
+            return _keepRemembered.Value;
+        }
+    }
 
     protected override void OnPropertyChanged(string name)
     {

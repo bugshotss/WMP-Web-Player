@@ -121,8 +121,8 @@ screen itself, which is why this is a screen saver.
   WMP's own Bars and Battery are locked inside `wmp.dll`, so these are faithful recreations.
 - Any other WMP visualization plug-in registered on the PC appears automatically.
 - **Each skin remembers its visualization.** A skin opens with the one last shown in it; a skin you haven't used yet
-  starts with its own (or WMP's default, Bars). Pick one from the list in full mode (Ctrl+1) and it's the one the skin
-  shows when you go back. Skins that name a visualization as they switch theirs on (Kenwood sets Spikes every time it
+  starts with its own (or WMP's default, Bars). Pick one from a skin's right-click Visualizations menu and the skin
+  switches to it; pick one from the list in full mode (Ctrl+1) and it's the one the skin shows when you go back. Skins that name a visualization as they switch theirs on (Kenwood sets Spikes every time it
   leaves its song display) get the remembered one instead, once there is one. Song changes don't count as a pause and
   resume, even when the browser reports a moment of pause between songs, so skins don't drop back from their
   visualizer at every song. A plug-in that duplicates a built-in visualization (WMP 8's own Bars and Waves and

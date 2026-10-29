@@ -194,13 +194,13 @@ public partial class FullModeWindow : Window
     void OnEffectSelected(object sender, SelectionChangedEventArgs e)
     {
         if (_updating || EffectBox.SelectedItem is not string title) return;
-        S.Visualizations.SetEffect(VisualizationCatalog.All.First(d => d.Title == title).Id, 0);
+        S.Visualizations.Choose(VisualizationCatalog.All.First(d => d.Title == title).Id, 0);
     }
 
     void OnPresetSelected(object sender, SelectionChangedEventArgs e)
     {
         if (_updating || PresetBox.SelectedIndex < 0) return;
-        S.Visualizations.SetPreset(PresetBox.SelectedIndex);
+        S.Visualizations.Choose(S.Visualizations.EffectId, PresetBox.SelectedIndex);
     }
 
     void OnPrevEffect(object sender, RoutedEventArgs e) => S.Visualizations.NextEffect(-1);
@@ -221,7 +221,7 @@ public partial class FullModeWindow : Window
             {
                 int preset = i;
                 var mi = new MenuItem { Header = d.Presets[i], IsCheckable = true, IsChecked = S.Visualizations.EffectId == d.Id && S.Visualizations.Preset == i };
-                mi.Click += (_, _) => S.Visualizations.SetEffect(d.Id, preset);
+                mi.Click += (_, _) => S.Visualizations.Choose(d.Id, preset);
                 sub.Items.Add(mi);
             }
             menu.Items.Add(sub);

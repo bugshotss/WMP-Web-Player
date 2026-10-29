@@ -43,6 +43,16 @@ public sealed class VisualizationService : IDisposable
 
     public void SetPreset(int preset) => SetEffect(EffectId, preset);
 
+    /// <summary>A visualization picked from the player's own lists (a skin's right-click menu, full mode).</summary>
+    public event Action? Chosen;
+
+    /// <summary>The user picked this from the player's own lists: every visualizer showing switches to it.</summary>
+    public void Choose(string id, int preset)
+    {
+        SetEffect(id, preset);
+        Chosen?.Invoke();
+    }
+
     public void NextEffect(int dir = 1)
     {
         var all = VisualizationCatalog.All;
