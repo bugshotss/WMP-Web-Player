@@ -12,7 +12,7 @@ namespace WebSkinPlayer;
 /// Developer test hook: "--automate script.txt" replays input against the active skin view
 /// through the same code paths real mouse input uses. One command per line (view coordinates):
 ///   skin &lt;path&gt; | click x y | rclick x y | move x y | drag x1 y1 x2 y2 | wheel x y delta | key Name
-///   wait ms | capture file.png | eval js-expression | vis id preset | fullmode | exit
+///   wait ms | capture file.png | record target frames ms scale dir | eval js-expression | vis id preset | fullmode | exit
 /// Results go to the app log.
 /// </summary>
 public static class AutomationRunner
@@ -76,20 +76,29 @@ public static class AutomationRunner
                         App.Services.Visualizations.Choose(arg.Split(' ')[0], n.Length > 1 ? (int)n[1] : 0);
                         break;
                     case "capture":
-                        if (view != null) Capture(view, arg);
+                        if (Snap("skin", 1) is { } skinShot) { Save(skinShot, arg); Log.Write($"[auto] captured {arg}"); }
                         break;
                     case "capturefull":
-                        if (App.Modes.FullWindow?.Content is FrameworkElement root)
-                        {
-                            var dpi = VisualTreeHelper.GetDpi(root);
-                            var rtb = new RenderTargetBitmap((int)(root.ActualWidth * dpi.DpiScaleX), (int)(root.ActualHeight * dpi.DpiScaleY), dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-                            rtb.Render(root);
-                            var enc = new PngBitmapEncoder();
-                            enc.Frames.Add(BitmapFrame.Create(rtb));
-                            using var fs = File.Create(arg);
-                            enc.Save(fs);
-                        }
+                        if (Snap("full", 1) is { } fullShot) Save(fullShot, arg);
                         break;
+                    case "record": // record skin|full|saver|widget <frames> <ms> <scale> <dir> : numbered PNG frames
+                    {
+                        var r = arg.Split(' ', 5);
+                        int frames = int.Parse(r[1]), every = int.Parse(r[2]);
+                        double scale = double.Parse(r[3], System.Globalization.CultureInfo.InvariantCulture);
+                        var shots = new List<BitmapSource>();
+                        var clock = System.Diagnostics.Stopwatch.StartNew();
+                        for (int i = 0; i < frames; i++)
+                        {
+                            if (Snap(r[0], scale) is { } shot) shots.Add(shot);
+                            var due = TimeSpan.FromMilliseconds(every * (i + 1)) - clock.Elapsed;
+                            if (due > TimeSpan.Zero) await Task.Delay(due);
+                        }
+                        Directory.CreateDirectory(r[4]);
+                        for (int i = 0; i < shots.Count; i++) Save(shots[i], Path.Combine(r[4], $"frame{i:0000}.png"));
+                        Log.Write($"[auto] recorded {shots.Count} frames of {r[0]} in {clock.ElapsedMilliseconds} ms");
+                        break;
+                    }
                     case "state":
                         Log.Write($"[auto] state {arg}: widgetMode={App.Modes.InWidgetMode} widgetShown={App.Modes.WidgetShown} " +
                                   $"full={(App.Modes.FullWindow?.IsVisible ?? false)} skin={(App.Modes.CurrentTheme?.ActiveView?.Window?.IsVisible ?? false)}");
@@ -106,15 +115,7 @@ public static class AutomationRunner
                         else App.Modes.SetAlwaysOnTop(arg == "toggle" ? !App.Modes.AlwaysOnTop : arg == "on");
                         break;
                     case "capturesaver": // capturesaver file.png : the first screen saver window
-                        if (Application.Current.Windows.OfType<UI.ScreenSaverWindow>().FirstOrDefault()?.Content is FrameworkElement saverRoot)
-                        {
-                            var rtb = new RenderTargetBitmap((int)saverRoot.ActualWidth, (int)saverRoot.ActualHeight, 96, 96, PixelFormats.Pbgra32);
-                            rtb.Render(saverRoot);
-                            var enc = new PngBitmapEncoder();
-                            enc.Frames.Add(BitmapFrame.Create(rtb));
-                            using var fs = File.Create(arg);
-                            enc.Save(fs);
-                        }
+                        if (Snap("saver", 1) is { } saverShot) Save(saverShot, arg);
                         break;
                     case "saver": // saver start|stop|next|? : the visualizer screen saver
                         if (App.ScreenSaver is not { } saver) break;
@@ -145,16 +146,42 @@ public static class AutomationRunner
         }
     }
 
-    static void Capture(SkinView view, string path)
+    /// <summary>The active skin view, full mode, the first screen saver window or the taskbar widget, rendered at
+    /// <paramref name="scale"/> × 96 DPI (1 = one pixel per skin pixel).</summary>
+    static BitmapSource? Snap(string target, double scale)
     {
-        var dv = new DrawingVisual();
-        using (var dc = dv.RenderOpen()) view.RenderTree(dc);
-        var rtb = new RenderTargetBitmap(Math.Max(1, view.Width), Math.Max(1, view.Height), 96, 96, PixelFormats.Pbgra32);
-        rtb.Render(dv);
+        Visual? visual;
+        double width, height;
+        if (target == "skin")
+        {
+            if (App.Modes.CurrentTheme?.ActiveView is not { } view) return null;
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen()) view.RenderTree(dc);
+            (visual, width, height) = (dv, view.Width, view.Height);
+        }
+        else
+        {
+            var root = target switch
+            {
+                "full" => App.Modes.FullWindow?.Content,
+                "saver" => Application.Current.Windows.OfType<UI.ScreenSaverWindow>().FirstOrDefault()?.Content,
+                "widget" => Application.Current.Windows.Cast<Window>().FirstOrDefault(w => w.Title == "WebSkin Player taskbar widget")?.Content,
+                _ => null,
+            } as FrameworkElement;
+            if (root == null) return null;
+            (visual, width, height) = (root, root.ActualWidth, root.ActualHeight);
+        }
+        var rtb = new RenderTargetBitmap(Math.Max(1, (int)Math.Round(width * scale)), Math.Max(1, (int)Math.Round(height * scale)), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        rtb.Render(visual);
+        rtb.Freeze();
+        return rtb;
+    }
+
+    static void Save(BitmapSource image, string path)
+    {
         var enc = new PngBitmapEncoder();
-        enc.Frames.Add(BitmapFrame.Create(rtb));
+        enc.Frames.Add(BitmapFrame.Create(image));
         using var fs = File.Create(path);
         enc.Save(fs);
-        Log.Write($"[auto] captured {path}");
     }
 }

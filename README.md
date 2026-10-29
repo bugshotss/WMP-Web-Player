@@ -1,4 +1,15 @@
-# WebSkin Player
+<p align="center">
+  <img src="docs/images/banner.png" width="880" alt="WebSkin Player: classic Windows Media Player skins and visualizations for the music playing in your browser">
+</p>
+
+<p align="center">
+  <a href="../../releases/latest"><img src="docs/images/button-download.png" width="88" height="31" alt="Download it now"></a>
+  <img src="docs/images/button-windows.png" width="88" height="31" alt="For Windows 10 and 11">
+  <img src="docs/images/button-skins.png" width="88" height="31" alt="336 skins tested">
+  <img src="docs/images/button-plugins.png" width="88" height="31" alt="Runs WMP 7 to 10 visualization plug-ins">
+  <img src="docs/images/button-webmusic.png" width="88" height="31" alt="Plays along with web music">
+  <img src="docs/images/button-noadmin.png" width="88" height="31" alt="No admin rights needed">
+</p>
 
 Original Windows Media Player skins (`.wmz`) and WMP-style visualizations for whatever your browser is playing:
 SoundCloud or Spotify in Chrome, Edge, or any app that shows up in the Windows media controls.
@@ -7,7 +18,62 @@ Microsoft is ending skin support in Windows Media Player Legacy on November 10, 
 ([notice](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/wmp/effects-windowed)).
 WebSkin Player re-implements the skin engine, so those skins keep working, with your web music instead of local files.
 
+<p align="center">
+  <a href="docs/images/desktop.png"><img src="docs/images/desktop.png" width="880" alt="Seventeen classic Windows Media Player skins spread over a green-hills desktop, all playing the same song"></a><br>
+  <sub>Skins by Microsoft and their original designers, each captured running in WebSkin Player and arranged on one desktop.</sub>
+</p>
+
+## Take the tour
+
+**Every skin runs its own scripts**, so its buttons, sliders, drawers, animations and visualizer behave as they did in
+WMP, following the song in your browser.
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="docs/images/skin-heart.gif" width="380" alt="The Heart skin playing a song with the Ambience visualization"><br><b>Heart</b> with Ambience</td>
+    <td align="center" width="50%"><img src="docs/images/skin-fishbowl.gif" width="380" alt="The Fishbowl skin with the Plenoptic visualization in its bowl"><br><b>Fishbowl</b> with Plenoptic</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/skin-windowsxp.gif" width="380" alt="The Windows XP skin with the Alchemy visualization"><br><b>Windows XP</b> with Alchemy</td>
+    <td align="center"><img src="docs/images/skin-plusbionicdot.gif" width="380" alt="The Plus! Bionic Dot skin with the Eclectic Colors visualization"><br><b>Plus! Bionic Dot</b> with Eclectic Colors</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/skin-muktuk.gif" width="380" alt="The Muktuk skin with the StarTime visualization"><br><b>Muktuk</b> with StarTime</td>
+    <td align="center"><img src="docs/images/skin-splat.gif" width="380" alt="The Splat skin with the Plenoptic visualization"><br><b>Splat</b> with Plenoptic</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/visualizations.gif" width="420" alt="The Compact skin running through ten visualizations: Bubbles, Plenoptic, Distortion, ColorCubes, Album Art 3D, 3D Alchemy, up cuber, BlazingColors, Alchemy and Battery"></td>
+    <td>
+      <b>Visualizations from every WMP era.</b> Built in: WMP's own Alchemy (from Windows Media Player Legacy) and
+      faithful Bars and Waves and Battery. Add the old 32-bit plug-ins people collected, like WMP 8's Ambience and
+      Plenoptic, the Psychedelia pack or StarTime, straight from their <code>.dll</code>, <code>.zip</code> or
+      <code>.msi</code>; nothing gets installed into Windows. Each skin remembers the one you last showed in it.
+      <a href="#visualizations">More</a>
+    </td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="docs/images/full-mode.png" width="400" alt="Full mode: the Alchemy visualization filling the window, with the song title above and the transport bar below"><br><b>Full mode</b> (Ctrl+1): a big visualizer, double-click for full screen</td>
+    <td align="center" width="50%"><img src="docs/images/skin-chooser.png" width="400" alt="The Skin Chooser listing installed skins by publisher, previewing Fishbowl"><br><b>Skin Chooser</b>: live previews, skins grouped by publisher, the archive.org collection a click away</td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/images/widget.gif" width="460" height="48" alt="The taskbar widget: album art, title and artist, a moving mini spectrum, and previous, play/pause and next buttons"><br>
+  <b>Taskbar widget</b> (Ctrl+3): the song, a live mini spectrum and the transport buttons, docked in the Windows taskbar.
+</p>
+
+**And a visualizer screen saver**: when the PC sits idle, every monitor shows a random visualization with the current
+song fading in. [More](#screen-saver)
+
 ## Install
+
+<a href="../../releases/latest"><img src="docs/images/download.png" width="300" height="76" alt="Download WebSkin Player, free for Windows 10 and 11"></a>
 
 1. Download **`WebSkinPlayer-<version>-Setup.exe`** from the [latest release](../../releases/latest).
 2. Run it. It installs for your Windows account only, needs no admin rights and no separate .NET install, and adds a
@@ -57,7 +123,8 @@ the search box, or type a publisher or designer name into the search. A skin's d
 Other shortcuts: Ctrl+P play/pause, Ctrl+S stop, Ctrl+B / Ctrl+F previous / next, F8 mute, F9 / F10 volume.
 In full mode, double-click the visualizer (or press Alt+Enter) for full screen. Esc exits full screen.
 
-The player follows whatever is playing. To pin one app instead, use **Source** in full mode.
+The player follows whatever is playing. To pin one app instead, use **Source** in full mode. A pinned app that drops
+out for a moment is waited for (5 seconds) rather than replaced by another app that's playing.
 
 **Always on Top** keeps the player above other windows, in full mode and in every skin window. Switch it with the
 pin button in full mode's transport bar, or from the right-click menu of a skin, the visualizer, or the taskbar widget.
@@ -94,9 +161,9 @@ Many skins show the visualizer only on demand, exactly as in WMP: Kenwood defaul
 **Previous Preset**, the top arrow in the right-hand cluster), Mecha and Plasma Ball have a visualizer button, and
 Gold slides it out in a drawer.
 
-**Compatibility across the collection:** all 175 skins load. 155 run their scripts without any error. The other 20
-hit bugs in their own scripts, such as references to elements the skin doesn't define. WMP silently ignored those
-errors, and so does this app; the errors are written to the log only.
+**Compatibility:** all 336 skins it's tested against (the archive.org collection plus WMP Goodies' skins) load. 257
+run their scripts without any error. The other 79 hit bugs in their own scripts, such as references to elements the
+skin doesn't define. WMP silently ignored those errors, and so does this app; the errors are written to the log only.
 
 **Windows Media Player Legacy** (Settings → System → Optional features) supplies WMP's built-in button images and
 strings that some skins borrow, and the Alchemy visualizer. Without it, skins still load but those borrowed pieces
@@ -123,9 +190,10 @@ screen itself, which is why this is a screen saver.
 - **Each skin remembers its visualization.** A skin opens with the one last shown in it; a skin you haven't used yet
   starts with its own (or WMP's default, Bars). Pick one from a skin's right-click Visualizations menu and the skin
   switches to it; pick one from the list in full mode (Ctrl+1) and it's the one the skin shows when you go back. Skins that name a visualization as they switch theirs on (Kenwood sets Spikes every time it
-  leaves its song display) get the remembered one instead, once there is one. Song changes don't count as a pause and
-  resume, even when the browser reports a moment of pause between songs, so skins don't drop back from their
-  visualizer at every song. A plug-in that duplicates a built-in visualization (WMP 8's own Bars and Waves and
+  leaves its song display) get the remembered one instead, once there is one. Song changes and skips don't count as a
+  pause and resume, even when the browser reports a moment of pause between songs or drops its media session for a
+  few seconds (Chrome does at some SoundCloud song changes), so skins don't drop back from their visualizer at every
+  song. A pause you make yourself still shows at once. A plug-in that duplicates a built-in visualization (WMP 8's own Bars and Waves and
   Battery) isn't listed a second time.
 - **Old 32-bit plug-ins** from the WMP 7 to 10 era (WMP 8's original Ambience, Particle, Plenoptic and Spikes,
   3D Alchemy, the Averett & Associates packs, the Psychedelia pack, community ones) run in a small 32-bit helper
@@ -162,7 +230,7 @@ Audio for the visualizers is captured with WASAPI loopback, so they react to eve
 
 ## Building
 
-Needs the .NET 10 SDK, and [Inno Setup 6](https://jrsoftware.org/isinfo.php) for the installer
+Needs the .NET 10 SDK, and [Inno Setup](https://jrsoftware.org/isinfo.php) (6 or later) for the installer
 (`winget install JRSoftware.InnoSetup`).
 
 ```
@@ -195,8 +263,10 @@ check it for updates; local builds don't.
   drawn over it (`live-report.txt`).
 - `WebSkinPlayer.exe --automate script.txt` replays commands through the real input code:
   `click x y`, `drag x1 y1 x2 y2`, `eval js`, `capture file.png`, `capturefull file.png`, `vis Bars 0`,
-  `skin path`, `widget`, `restore`, `fullmode`, `tab skins|online`, `uiclick ButtonName`, `uiselect ListName text`,
-  `state label`, `wait ms`, `exit`.
+  `choose Bars 0` (as picked from the right-click menu), `skin path`, `widget`, `restore`, `fullmode`,
+  `tab skins|online`, `uiclick ButtonName`, `uiselect ListName text`, `state label`, `wait ms`, `exit`.
+  `record skin|full|saver|widget <frames> <ms> <scale> <dir>` saves numbered PNG frames of the skin, full mode, the
+  screen saver or the taskbar widget (scale 1 = one pixel per skin pixel). Captures render at 96 DPI.
 - `--debug-input` logs every press and what it hit. `--widget` starts collapsed into the taskbar widget.
   `--exit` closes a running copy (the installer uses it).
 - `WEBSKINPLAYER_DATA=<folder>` runs with a separate data folder, e.g. to try a first run on a clean profile.
@@ -206,6 +276,18 @@ check it for updates; local builds don't.
 - `WebSkinPlayer.VisHost32.exe probe <dll>` describes a plug-in DLL; `snapshot <dll> <clsid> <out.bmp> [preset]
   [dc|attach|windowed]` test-renders one and reports how much appeared in the DC (`lit`) and on its window
   (`windowLit`). `WEBSKINPLAYER_VISHOST=<exe>` points the player at a development build of the helper.
+- `spikes\SmtcTestSource [seconds] [volume] [songEvery] [playlist.txt]` is a fake media session. Volume 0 is silent.
+  `songEvery` changes track the ways Chrome does at SoundCloud song changes (a 0.2 s pause, or the session dropping
+  for 1.5 s); the third change is a real 3 s pause. The playlist has one `Title|Artist|Album|cover.png` line per track. Pin it as the Source (settings `PreferredApp`
+  set to its exe name) so the player follows it instead of your browser.
+
+### README pictures
+
+`docs\images` is made by `tools\ReadmeArt`: `art` draws the banner and buttons, `pack` piles skin shots onto the
+desktop, and `compose` lays out scenes and encodes the GIFs (a palette per frame, only changed pixels stored). The
+skin shots and frames come from the player itself, with a profile holding the skins to show (`WEBSKINPLAYER_DATA`),
+`WEBSKINPLAYER_TESTSIGNAL=1`, `SmtcTestSource` playing a playlist as the pinned Source, and an `--automate` script of
+`skin`, `choose`, `capture` and `record` lines.
 
 ### Layout (`src\WebSkinPlayer`)
 
@@ -217,11 +299,20 @@ check it for updates; local builds don't.
 - `UI\`: the full-mode window and the taskbar widget.
 - `src\WebSkinPlayer.VisHost32`: the 32-bit plug-in helper (shared-memory protocol in `Serve.cs`, mirrored by
   `Visualization\Hosted32Visualization.cs`).
-- `installer\`: the Inno Setup script. `tools\`: the release build and icon scripts.
+- `installer\`: the Inno Setup script. `tools\`: the release build and icon scripts, and `ReadmeArt` (the README
+  pictures in `docs\images`).
 - `spikes\`: throwaway experiments. `SmtcTestSource` is a fake media session with a quiet tone, used for tests.
 
 ## Credits
 
-Skins are the work of their original authors and aren't part of this repository. Uses
+Skins are the work of their original authors and aren't part of this repository. The screenshots show them running
+in WebSkin Player with a stand-in playlist of public-domain classical titles. Uses
 [Jint](https://github.com/sebastienros/jint) (BSD-2-Clause) for JScript and
 [NAudio](https://github.com/naudio/NAudio) (MIT) for audio capture.
+
+<p align="center">
+  <img src="docs/images/button-dotnet.png" width="88" height="31" alt="Powered by .NET 10">
+  <a href="https://github.com/sebastienros/jint"><img src="docs/images/button-jint.png" width="88" height="31" alt="Scripts by Jint"></a>
+  <a href="https://github.com/naudio/NAudio"><img src="docs/images/button-naudio.png" width="88" height="31" alt="Audio by NAudio"></a>
+  <img src="docs/images/button-1024.png" width="88" height="31" alt="Best viewed at 1024x768">
+</p>
