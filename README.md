@@ -42,7 +42,8 @@ WMP, following the song in your browser.
       <b>Visualizations from every WMP era.</b> Built in: WMP's own Alchemy (from Windows Media Player Legacy) and
       faithful Bars and Waves and Battery. Add the old 32-bit plug-ins people collected, like WMP 8's Ambience and
       Plenoptic, the Psychedelia pack or StarTime, straight from their <code>.dll</code>, <code>.zip</code> or
-      <code>.msi</code>; nothing gets installed into Windows. Each skin remembers the one you last showed in it.
+      <code>.msi</code>; nothing gets installed into Windows. Each skin remembers the one you last showed in it, and
+      any visualization can be recoloured: Fire, Ice, Neon, a green or amber monitor, or a colour of your own.
       <a href="#visualizations">More</a>
     </td>
   </tr>
@@ -189,6 +190,15 @@ screen itself, which is why this is a screen saver.
   after 1.5 seconds, as skips from there look like a pause until the next song loads. Gaps longer than a second are
   written to the log (`Playback stopped for ...`). A plug-in that duplicates a built-in visualization (WMP 8's own Bars and Waves and
   Battery) isn't listed a second time.
+- **Colors.** Any visualization, the plug-ins included, can be recoloured from **Colors for ...** in a skin's
+  right-click menu or full mode's visualizer menu, or the palette button next to full mode's preset list:
+  - **Palettes:** the picture's brightness mapped onto a gradient: Fire, Sunset, Gold, Rose, Neon, Ice, Ocean,
+    Emerald, Green Screen and Amber Screen (the old monochrome monitors), Black and White.
+  - **Shift Colors:** rotates every hue by 60° to 300°, keeping the brightness.
+  - **Custom Color…:** a colour of your own from Windows' colour picker.
+
+  Each visualization keeps its own colours (Alchemy can stay green while Bars turns blue), in skins, full mode and the
+  screen saver alike. **Original Colors** shows it as it was drawn.
 - **Old 32-bit plug-ins** from the WMP 7 to 10 era (WMP 8's original Ambience, Particle, Plenoptic and Spikes,
   3D Alchemy, the Averett & Associates packs, the Psychedelia pack, community ones) run in a small 32-bit helper
   (`VisHost32`), because a 64-bit app can't load them. Add them with **Add Visualization…** in the visualizer's
@@ -257,7 +267,8 @@ check it for updates; local builds don't.
   drawn over it (`live-report.txt`).
 - `WebSkinPlayer.exe --automate script.txt` replays commands through the real input code:
   `click x y`, `drag x1 y1 x2 y2`, `eval js`, `capture file.png`, `capturefull file.png`, `vis Bars 0`,
-  `choose Bars 0` (as picked from the right-click menu), `skin path`, `widget`, `restore`, `fullmode`,
+  `choose Bars 0` (as picked from the right-click menu), `viscolor Bars palette:Fire|hue:120|custom:#RRGGBB` (no
+  spec for the original colours), `skin path`, `widget`, `restore`, `fullmode`,
   `tab skins|online`, `uiclick ButtonName`, `uiselect ListName text`, `state label`, `wait ms`, `exit`.
   `record skin|full|saver|widget <frames> <ms> <scale> <dir>` saves numbered PNG frames of the skin, full mode, the
   screen saver or the taskbar widget (scale 1 = one pixel per skin pixel). Captures render at 96 DPI.

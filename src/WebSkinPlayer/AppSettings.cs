@@ -47,6 +47,8 @@ public sealed class AppSettings
     public Dictionary<string, Dictionary<string, string>> SkinPreferences { get; set; } = new();
     /// <summary>The visualization last shown in each skin (key: skin file, lower case); full mode's choice goes to the last skin.</summary>
     public Dictionary<string, SkinEffect> SkinEffects { get; set; } = new();
+    /// <summary>Colours chosen per visualization (key: its id), e.g. "palette:Fire"; see VisualizationColors.</summary>
+    public Dictionary<string, string> VisColors { get; set; } = new();
     /// <summary>Global mediacenter-style flags skins toggle (showTitles, showEffects...).</summary>
     public Dictionary<string, string> MediaCenter { get; set; } = new();
 

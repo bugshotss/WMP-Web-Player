@@ -252,6 +252,7 @@ public sealed class SkinTheme
             menu.Items.Add(open);
             menu.Items.Add(play);
             menu.Items.Add(visMenu);
+            menu.Items.Add(UI.VisualizationColorMenu.Build(view?.Window));
             menu.Items.Add(new Separator());
             menu.Items.Add(Item("Always on Top", App.Modes.ToggleAlwaysOnTop, true, App.Modes.AlwaysOnTop));
             if (App.ScreenSaver is { } saver) menu.Items.Add(saver.BuildMenu());

@@ -13,7 +13,7 @@
     <AssemblyName>WebSkinPlayer</AssemblyName>
     <RootNamespace>WebSkinPlayer</RootNamespace>
     <Product>WebSkin Player</Product>
-    <Version>0.2.4</Version>
+    <Version>0.2.5</Version>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
     <StartupObject>WebSkinPlayer.Program</StartupObject>
     <ApplicationIcon>app.ico</ApplicationIcon>

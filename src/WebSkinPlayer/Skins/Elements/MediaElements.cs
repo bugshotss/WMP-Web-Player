@@ -144,7 +144,11 @@ public class EffectsElement : SkinElement
             string requested = GetString(name);
             var d = VisualizationCatalog.Find(requested);
             bool isAlias = d != null && !requested.Equals(EffectKey(d), StringComparison.OrdinalIgnoreCase) && !requested.Equals(d.Id, StringComparison.OrdinalIgnoreCase);
-            if (d != null) Apply(d, d.Id == Renderer.EffectId ? Renderer.Preset : 0, notify: true, alias: isAlias ? requested : null);
+            // Skins bound to mediacenter.effectType (Compact) hear of a new visualization before its preset: when it's the
+            // player's own choice, its preset comes with it.
+            var svc = App.Services.Visualizations;
+            int preset = d?.Id == Renderer.EffectId ? Renderer.Preset : d?.Id == svc.EffectId ? svc.Preset : 0;
+            if (d != null) Apply(d, preset, notify: true, alias: isAlias ? requested : null);
         }
         else if (name is "currentpreset" or "preset")
         {

@@ -12,7 +12,8 @@ namespace WebSkinPlayer;
 /// Developer test hook: "--automate script.txt" replays input against the active skin view
 /// through the same code paths real mouse input uses. One command per line (view coordinates):
 ///   skin &lt;path&gt; | click x y | rclick x y | move x y | drag x1 y1 x2 y2 | wheel x y delta | key Name
-///   wait ms | capture file.png | record target frames ms scale dir | eval js-expression | vis id preset | fullmode | exit
+///   wait ms | capture file.png | record target frames ms scale dir | eval js-expression | vis id preset |
+///   viscolor id spec | fullmode | exit
 /// Results go to the app log.
 /// </summary>
 public static class AutomationRunner
@@ -75,6 +76,12 @@ public static class AutomationRunner
                     case "choose": // choose <id> [preset] : as picking it from the right-click Visualizations menu
                         App.Services.Visualizations.Choose(arg.Split(' ')[0], n.Length > 1 ? (int)n[1] : 0);
                         break;
+                    case "viscolor": // viscolor <id> [palette:Fire|hue:120|custom:#RRGGBB] : as the Colors menu (no spec = original)
+                    {
+                        var c = arg.Split(' ', 2);
+                        Visualization.VisualizationColors.Set(c[0], c.Length > 1 ? c[1].Trim() : "");
+                        break;
+                    }
                     case "capture":
                         if (Snap("skin", 1) is { } skinShot) { Save(skinShot, arg); Log.Write($"[auto] captured {arg}"); }
                         break;

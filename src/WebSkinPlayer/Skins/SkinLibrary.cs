@@ -62,8 +62,15 @@ public sealed class SkinLibrary
                 list.Add(entry);
             }
         }
+        if (list.Count != _loggedCount)
+        {
+            _loggedCount = list.Count;
+            Log.Write($"Skins installed: {list.Count} (from {InstallFolder})");
+        }
         return list.OrderBy(e => e.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
+
+    int _loggedCount = -1;
 
     /// <summary>Reads the THEME title/author once (cheap: only parses the .wms header).</summary>
     public void EnsureMetadata(SkinEntry entry)

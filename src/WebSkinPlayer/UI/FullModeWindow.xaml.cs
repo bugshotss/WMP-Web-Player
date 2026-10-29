@@ -206,6 +206,13 @@ public partial class FullModeWindow : Window
     void OnPrevEffect(object sender, RoutedEventArgs e) => S.Visualizations.NextEffect(-1);
     void OnNextPreset(object sender, RoutedEventArgs e) => S.Visualizations.NextPreset(1);
 
+    void OnColors(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = System.Windows.Controls.Primitives.PlacementMode.Top };
+        foreach (var item in VisualizationColorMenu.Items(this)) menu.Items.Add(item);
+        menu.IsOpen = true;
+    }
+
     void OnVisualizerClick(object sender, MouseButtonEventArgs e)
     {
         if (e.ClickCount == 2) ToggleFullScreen();
@@ -227,6 +234,7 @@ public partial class FullModeWindow : Window
             menu.Items.Add(sub);
         }
         menu.Items.Add(new Separator());
+        menu.Items.Add(VisualizationColorMenu.Build(this));
         var onTop = new MenuItem { Header = "Always on Top", IsCheckable = true, IsChecked = App.Modes.AlwaysOnTop };
         onTop.Click += (_, _) => App.Modes.ToggleAlwaysOnTop();
         menu.Items.Add(onTop);

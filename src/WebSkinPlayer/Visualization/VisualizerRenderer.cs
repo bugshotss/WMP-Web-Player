@@ -58,8 +58,19 @@ public sealed unsafe class VisualizerRenderer : IDisposable
         if (_vis == null || _buffer == null || Bitmap == null) return;
         try { _vis.Render(frame, _buffer, context); }
         catch (Exception ex) { Log.Write($"Visualization {EffectId} error: {ex.Message}"); }
-        Bitmap.WritePixels(new Int32Rect(0, 0, _buffer.Width, _buffer.Height), (IntPtr)_buffer.Pixels, _buffer.Length * 4, _buffer.Width * 4);
+        var all = new Int32Rect(0, 0, _buffer.Width, _buffer.Height);
+        // Recoloured into a picture of its own: visualizations that build on their last frame (Battery's trails, the
+        // plug-ins' pictures between helper frames) must find it as they drew it.
+        if (VisualizationColors.MapFor(EffectId) is { } colors)
+        {
+            if (_colored?.Length != _buffer.Length) _colored = new int[_buffer.Length];
+            colors.Apply(_buffer.Pixels, _colored);
+            Bitmap.WritePixels(all, _colored, _buffer.Width * 4, 0);
+        }
+        else Bitmap.WritePixels(all, (IntPtr)_buffer.Pixels, _buffer.Length * 4, _buffer.Width * 4);
     }
+
+    int[]? _colored;
 
     public void Dispose()
     {
