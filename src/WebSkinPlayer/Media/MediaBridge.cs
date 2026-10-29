@@ -111,7 +111,7 @@ public sealed class MediaBridge : IDisposable
     /// <summary>When the pinned app last had a media session.</summary>
     DateTime _preferredSeen;
     DispatcherTimer? _preferredWait;
-    static readonly TimeSpan PreferredGrace = TimeSpan.FromSeconds(5);
+    static readonly TimeSpan PreferredGrace = TimeSpan.FromSeconds(15);
 
     void SelectSession()
     {

@@ -2,8 +2,9 @@
 // as a System Media Transport Controls session (like Chrome does for SoundCloud).
 // Usage: SmtcTestSource [seconds] [volume0to1] [songEverySeconds] [playlist.txt]
 // songEverySeconds: change track that often, the ways Chrome reports SoundCloud song changes: odd changes are Paused
-// for 0.2 s, then Playing the next title; even ones drop the session for 1.5 s and start a new one. The third change
-// is a real pause (3 s) instead. Next commands pause for 1.2 s before the next title plays, as a loading skip does.
+// for 0.2 s (1.2 s from the fifth on, still showing the old title), then Playing the next title; even ones drop the
+// session (for 8 s every fourth change, otherwise 1.5 s) and start a new one. The third change is a real pause (3 s)
+// instead. Next commands pause for 1.2 s before the next title plays, as a loading skip does.
 // playlist.txt: one track per line, "Title|Artist|Album|cover image path" (later fields optional), used in turn.
 using Windows.Media;
 using Windows.Media.Core;
@@ -85,9 +86,10 @@ for (int change = 1; songEvery > 0 && DateTime.Now.AddSeconds(songEvery) < end; 
     else if (change % 2 == 0)
     {
         // Chrome at some SoundCloud song changes: the session disappears, then a new one plays the next title.
-        Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff} song change, session dropped");
+        int gone = change % 4 == 0 ? 8000 : 1500;
+        Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff} song change, session dropped for {gone} ms");
         player.Dispose();
-        await Task.Delay(1500);
+        await Task.Delay(gone);
         track++;
         StartPlayer();
         await Task.Delay(100);
@@ -95,9 +97,11 @@ for (int change = 1; songEvery > 0 && DateTime.Now.AddSeconds(songEvery) < end; 
     }
     else
     {
-        Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff} song change");
+        // From the fifth change on, the next song loads first (still showing the old title), as after a media-key skip.
+        int paused = change >= 5 ? 1200 : 200;
+        Console.WriteLine($"{DateTime.Now:HH:mm:ss.fff} song change, paused {paused} ms");
         player.Pause();
-        await Task.Delay(200);
+        await Task.Delay(paused);
         track++;
         SetMeta();
         player.Play();

@@ -81,7 +81,10 @@ public sealed class PlayerModel
     DateTime _commandedAt;
     /// <summary>When the player's own next/previous was last pressed: the stop that follows is a song change.</summary>
     DateTime _skippedAt;
-    static readonly TimeSpan PauseHold = TimeSpan.FromMilliseconds(600), SongChangeHold = TimeSpan.FromSeconds(5);
+    // A skip made outside the player (media keys, the Windows media flyout) pauses while the next song loads and only
+    // then shows its title, so a plain pause is held long enough for that; a song change can take several seconds
+    // (Chrome has been seen without a session for 6 s while SoundCloud loaded the next song).
+    static readonly TimeSpan PauseHold = TimeSpan.FromMilliseconds(1500), SongChangeHold = TimeSpan.FromSeconds(15);
     DispatcherTimer? _gapTimer;
     DateTime _gapSince;
     bool _gapIsSongChange;
@@ -103,12 +106,12 @@ public sealed class PlayerModel
         // for up to a few seconds and brings it back. Skins that react to every play state change would treat each of
         // those as a pause and resume (Kenwood drops back from its visualizer to the song info), so a stop in mid-play
         // that the player didn't ask for is held and forgotten if playback carries on: briefly for a plain pause, and
-        // for a few seconds when it looks like a song change (the session gone, a new title, a skip).
+        // longer when it looks like a song change (the session gone, a new title, a skip, the song at its end).
         var now = DateTime.UtcNow;
         bool held = false;
         if (PlayState == WmpState.psPlaying && ps != WmpState.psPlaying && now - _commandedAt > TimeSpan.FromSeconds(2))
         {
-            if (_gapSince == default) (_gapSince, _gapIsSongChange) = (now, false);
+            if (_gapSince == default) (_gapSince, _gapIsSongChange) = (now, Duration > 0 && Duration - Position < 4);
             _gapIsSongChange |= !m.HasSession || m.Status != MediaStatus.Paused || m.Title != _playingTitle || now - _skippedAt < SongChangeHold;
             var until = _gapSince + (_gapIsSongChange ? SongChangeHold : PauseHold);
             if (now < until)
@@ -127,6 +130,9 @@ public sealed class PlayerModel
         }
         if (!held)
         {
+            if (_gapSince != default && now - _gapSince > TimeSpan.FromSeconds(1))
+                Log.Write($"Playback stopped for {(now - _gapSince).TotalSeconds:0.0} s ({(_gapIsSongChange ? "song change" : "pause")}): " +
+                          (ps == WmpState.psPlaying ? "carried on" : $"shown as play state {ps}"));
             _gapSince = default;
             _gapTimer?.Stop();
         }

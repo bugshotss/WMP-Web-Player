@@ -124,7 +124,7 @@ Other shortcuts: Ctrl+P play/pause, Ctrl+S stop, Ctrl+B / Ctrl+F previous / next
 In full mode, double-click the visualizer (or press Alt+Enter) for full screen. Esc exits full screen.
 
 The player follows whatever is playing. To pin one app instead, use **Source** in full mode. A pinned app that drops
-out for a moment is waited for (5 seconds) rather than replaced by another app that's playing.
+out for a moment is waited for (15 seconds) rather than replaced by another app that's playing.
 
 **Always on Top** keeps the player above other windows, in full mode and in every skin window. Switch it with the
 pin button in full mode's transport bar, or from the right-click menu of a skin, the visualizer, or the taskbar widget.
@@ -191,9 +191,11 @@ screen itself, which is why this is a screen saver.
   starts with its own (or WMP's default, Bars). Pick one from a skin's right-click Visualizations menu and the skin
   switches to it; pick one from the list in full mode (Ctrl+1) and it's the one the skin shows when you go back. Skins that name a visualization as they switch theirs on (Kenwood sets Spikes every time it
   leaves its song display) get the remembered one instead, once there is one. Song changes and skips don't count as a
-  pause and resume, even when the browser reports a moment of pause between songs or drops its media session for a
-  few seconds (Chrome does at some SoundCloud song changes), so skins don't drop back from their visualizer at every
-  song. A pause you make yourself still shows at once. A plug-in that duplicates a built-in visualization (WMP 8's own Bars and Waves and
+  pause and resume, even when the browser reports a moment of pause between songs or drops its media session for
+  several seconds (Chrome does at some SoundCloud song changes), so skins don't drop back from their visualizer at
+  every song. A pause made in the player shows at once; one made in the browser or the Windows media flyout shows
+  after 1.5 seconds, as skips from there look like a pause until the next song loads. Gaps longer than a second are
+  written to the log (`Playback stopped for ...`). A plug-in that duplicates a built-in visualization (WMP 8's own Bars and Waves and
   Battery) isn't listed a second time.
 - **Old 32-bit plug-ins** from the WMP 7 to 10 era (WMP 8's original Ambience, Particle, Plenoptic and Spikes,
   3D Alchemy, the Averett & Associates packs, the Psychedelia pack, community ones) run in a small 32-bit helper
@@ -277,8 +279,9 @@ check it for updates; local builds don't.
   [dc|attach|windowed]` test-renders one and reports how much appeared in the DC (`lit`) and on its window
   (`windowLit`). `WEBSKINPLAYER_VISHOST=<exe>` points the player at a development build of the helper.
 - `spikes\SmtcTestSource [seconds] [volume] [songEvery] [playlist.txt]` is a fake media session. Volume 0 is silent.
-  `songEvery` changes track the ways Chrome does at SoundCloud song changes (a 0.2 s pause, or the session dropping
-  for 1.5 s); the third change is a real 3 s pause. The playlist has one `Title|Artist|Album|cover.png` line per track. Pin it as the Source (settings `PreferredApp`
+  `songEvery` changes track the ways Chrome does at SoundCloud song changes (a 0.2 s pause, 1.2 s from the fifth
+  change on while the next song loads, or the session dropping for 1.5 s, 8 s every fourth change); the third change
+  is a real 3 s pause. Next pauses 1.2 s before the next song, as a loading skip does. The playlist has one `Title|Artist|Album|cover.png` line per track. Pin it as the Source (settings `PreferredApp`
   set to its exe name) so the player follows it instead of your browser.
 
 ### README pictures
