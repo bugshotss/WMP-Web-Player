@@ -70,6 +70,7 @@ public partial class App : Application
         var settings = AppSettings.Load();
         var media = await MediaBridge.CreateAsync(Dispatcher);
         media.PreferredApp = settings.PreferredApp;
+        if (media.PreferredApp != null) media.Reselect();
         var volume = new AppVolume();
         var analyzer = new LoopbackAnalyzer();
         var vis = new VisualizationService(analyzer, settings.EffectId, settings.EffectPreset);

@@ -79,8 +79,13 @@ public sealed class PlayerModel
 
     /// <summary>When the player's own pause/stop was last pressed: that pause is shown at once.</summary>
     DateTime _commandedAt;
+    /// <summary>When the player's own next/previous was last pressed: the stop that follows is a song change.</summary>
+    DateTime _skippedAt;
+    static readonly TimeSpan PauseHold = TimeSpan.FromMilliseconds(600), SongChangeHold = TimeSpan.FromSeconds(5);
     DispatcherTimer? _gapTimer;
-    bool _gapOver;
+    DateTime _gapSince;
+    bool _gapIsSongChange;
+    string _playingTitle = "";
 
     void OnMediaChanged()
     {
@@ -93,23 +98,39 @@ public sealed class PlayerModel
             MediaStatus.Changing => WmpState.psTransitioning,
             _ => m.HasSession ? WmpState.psReady : WmpState.psUndefined,
         };
-        // Web players can stop for a moment between songs (SoundCloud reports Paused for ~0.2 s, then Playing with
-        // the next title; sometimes its media session drops out and comes back) where WMP went straight on. Skins that react to every play state change would treat
-        // each song change as a pause and resume (Kenwood drops back from its visualizer to the song info), so a
-        // stop in mid-play that the player didn't ask for is held briefly and forgotten if playback carries on.
-        _gapTimer?.Stop();
-        if (PlayState == WmpState.psPlaying && ps != WmpState.psPlaying && !_gapOver && DateTime.UtcNow - _commandedAt > TimeSpan.FromSeconds(2))
+        // Web players stop for a moment between songs where WMP went straight on: SoundCloud reports Paused for
+        // ~0.2 s, then Playing with the next title, and at some song changes and skips Chrome drops its media session
+        // for up to a few seconds and brings it back. Skins that react to every play state change would treat each of
+        // those as a pause and resume (Kenwood drops back from its visualizer to the song info), so a stop in mid-play
+        // that the player didn't ask for is held and forgotten if playback carries on: briefly for a plain pause, and
+        // for a few seconds when it looks like a song change (the session gone, a new title, a skip).
+        var now = DateTime.UtcNow;
+        bool held = false;
+        if (PlayState == WmpState.psPlaying && ps != WmpState.psPlaying && now - _commandedAt > TimeSpan.FromSeconds(2))
         {
-            _gapTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(600), DispatcherPriority.Normal, (_, _) =>
+            if (_gapSince == default) (_gapSince, _gapIsSongChange) = (now, false);
+            _gapIsSongChange |= !m.HasSession || m.Status != MediaStatus.Paused || m.Title != _playingTitle || now - _skippedAt < SongChangeHold;
+            var until = _gapSince + (_gapIsSongChange ? SongChangeHold : PauseHold);
+            if (now < until)
             {
-                _gapTimer!.Stop();
-                _gapOver = true;
-                OnMediaChanged();
-                _gapOver = false;
-            }, Dispatcher.CurrentDispatcher);
-            _gapTimer.Start();
-            ps = WmpState.psPlaying;
+                held = true;
+                ps = WmpState.psPlaying;
+                if (_gapTimer == null)
+                {
+                    _gapTimer = new DispatcherTimer(DispatcherPriority.Normal);
+                    _gapTimer.Tick += (_, _) => { _gapTimer.Stop(); OnMediaChanged(); };
+                }
+                _gapTimer.Stop();
+                _gapTimer.Interval = until - now + TimeSpan.FromMilliseconds(20);
+                _gapTimer.Start();
+            }
         }
+        if (!held)
+        {
+            _gapSince = default;
+            _gapTimer?.Stop();
+        }
+        if (m.Status == MediaStatus.Playing) _playingTitle = m.Title;
         if (ps != PlayState)
         {
             PlayState = ps;
@@ -208,8 +229,8 @@ public sealed class PlayerModel
     public void Play() { if (_media.Current.Status == MediaStatus.Playing) return; _media.Play(); }
     public void Pause() { _commandedAt = DateTime.UtcNow; _media.Pause(); }
     public void Stop() { _commandedAt = DateTime.UtcNow; _media.Stop(); }
-    public void Next() => _media.Next();
-    public void Previous() => _media.Previous();
+    public void Next() { _skippedAt = DateTime.UtcNow; _media.Next(); }
+    public void Previous() { _skippedAt = DateTime.UtcNow; _media.Previous(); }
     public void FastForward() => _media.FastForward();
     public void FastReverse() => _media.Rewind();
     public void TogglePlayPause() { _commandedAt = DateTime.UtcNow; _media.TogglePlayPause(); }

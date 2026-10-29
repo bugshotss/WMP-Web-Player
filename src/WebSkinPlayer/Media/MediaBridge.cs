@@ -59,7 +59,12 @@ public sealed class MediaBridge : IDisposable
 
     public MediaSnapshot Current { get; private set; } = MediaSnapshot.Empty;
     /// <summary>App id the user pinned; null means follow whatever is playing.</summary>
-    public string? PreferredApp { get; set; }
+    public string? PreferredApp
+    {
+        get => _preferredApp;
+        set { if (!string.Equals(value, _preferredApp, StringComparison.OrdinalIgnoreCase)) _preferredSeen = default; _preferredApp = value; }
+    }
+    string? _preferredApp;
 
     public event Action? Changed;
     public event Action? TrackChanged;
@@ -101,16 +106,42 @@ public sealed class MediaBridge : IDisposable
     /// <summary>Re-evaluate which session to follow (after <see cref="PreferredApp"/> changes).</summary>
     public void Reselect() => SelectSession();
 
+    /// <summary>The app of the session followed (kept, as a session that has gone can't be asked).</summary>
+    string? _sessionApp;
+    /// <summary>When the pinned app last had a media session.</summary>
+    DateTime _preferredSeen;
+    DispatcherTimer? _preferredWait;
+    static readonly TimeSpan PreferredGrace = TimeSpan.FromSeconds(5);
+
     void SelectSession()
     {
         if (_manager == null) return;
         var sessions = _manager.GetSessions();
         GlobalSystemMediaTransportControlsSession? pick = null;
+        bool waiting = false;
 
         if (PreferredApp != null)
+        {
             pick = sessions.FirstOrDefault(s => string.Equals(s.SourceAppUserModelId, PreferredApp, StringComparison.OrdinalIgnoreCase));
+            // Following it until now counts as seeing it: this is the moment it went away.
+            if (pick != null || string.Equals(_sessionApp, PreferredApp, StringComparison.OrdinalIgnoreCase)) _preferredSeen = DateTime.UtcNow;
+            // The pinned app's session can vanish for a moment and come back (Chrome does at some SoundCloud song
+            // changes): wait for it rather than jump to whatever else is playing meanwhile.
+            if (pick == null && DateTime.UtcNow - _preferredSeen < PreferredGrace)
+            {
+                waiting = true;
+                if (_preferredWait == null)
+                {
+                    _preferredWait = new DispatcherTimer(DispatcherPriority.Normal, _ui);
+                    _preferredWait.Tick += (_, _) => { _preferredWait.Stop(); SelectSession(); };
+                }
+                _preferredWait.Stop();
+                _preferredWait.Interval = PreferredGrace - (DateTime.UtcNow - _preferredSeen) + TimeSpan.FromMilliseconds(50);
+                _preferredWait.Start();
+            }
+        }
 
-        if (pick == null)
+        if (pick == null && !waiting)
         {
             // Stay on the current session while it is playing; otherwise jump to whatever is playing.
             bool currentPlaying = _session != null && sessions.Contains(_session) && SafeStatus(_session) == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
@@ -133,6 +164,7 @@ public sealed class MediaBridge : IDisposable
                 _session.TimelinePropertiesChanged -= OnTimeline;
             }
             _session = pick;
+            _sessionApp = pick?.SourceAppUserModelId;
             _timeline = null;
             if (_session != null)
             {
@@ -140,7 +172,7 @@ public sealed class MediaBridge : IDisposable
                 _session.PlaybackInfoChanged += OnPlayback;
                 _session.TimelinePropertiesChanged += OnTimeline;
             }
-            Log.Write("Media session: " + (_session?.SourceAppUserModelId ?? "(none)"));
+            Log.Write("Media session: " + (_sessionApp ?? "(none)") + (waiting ? $" (waiting for {PreferredApp} to come back)" : ""));
         }
         _ = RefreshAsync();
     }
