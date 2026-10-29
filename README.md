@@ -2,14 +2,6 @@
   <img src="docs/images/banner.png" width="880" alt="WebSkin Player: classic Windows Media Player skins and visualizations for the music playing in your browser">
 </p>
 
-<p align="center">
-  <a href="../../releases/latest"><img src="docs/images/button-download.png" width="88" height="31" alt="Download it now"></a>
-  <img src="docs/images/button-windows.png" width="88" height="31" alt="For Windows 10 and 11">
-  <img src="docs/images/button-skins.png" width="88" height="31" alt="336 skins tested">
-  <img src="docs/images/button-plugins.png" width="88" height="31" alt="Runs WMP 7 to 10 visualization plug-ins">
-  <img src="docs/images/button-webmusic.png" width="88" height="31" alt="Plays along with web music">
-  <img src="docs/images/button-noadmin.png" width="88" height="31" alt="No admin rights needed">
-</p>
 
 Original Windows Media Player skins (`.wmz`) and WMP-style visualizations for whatever your browser is playing:
 SoundCloud or Spotify in Chrome, Edge, or any app that shows up in the Windows media controls.
