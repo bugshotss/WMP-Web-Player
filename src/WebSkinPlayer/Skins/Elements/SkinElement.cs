@@ -281,6 +281,9 @@ public class SkinElement : ScriptObject
     /// <summary>Draws this element at its absolute position (children are drawn by the caller).</summary>
     public virtual void Render(DrawingContext dc, Rect bounds) { }
 
+    /// <summary>Draws what sits under even the negative-zIndex children (a container's backgroundColor).</summary>
+    public virtual void RenderBackdrop(DrawingContext dc, Rect bounds) { }
+
     /// <summary>Called once after load completes (bindings applied, scripts run).</summary>
     public virtual void OnLoaded() { }
 

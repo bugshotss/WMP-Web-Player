@@ -44,13 +44,16 @@ public class SubviewElement : SkinElement
         return true;
     }
 
-    public override void Render(DrawingContext dc, Rect b)
+    public override void RenderBackdrop(DrawingContext dc, Rect b)
     {
         int? color = SkinImages.ParseColor(GetString("backgroundcolor"));
         if (color == null && Values.TryGetValue("backgoundcolor", out var typo)) color = SkinImages.ParseColor(ToStr(typo));
         if (color != null)
             dc.DrawRectangle(new SolidColorBrush(Color.FromRgb((byte)(color >> 16), (byte)(color >> 8), (byte)color)), null, b);
+    }
 
+    public override void Render(DrawingContext dc, Rect b)
+    {
         var bg = Background;
         if (bg == null) return;
         var src = FrameOf(bg, GetString("backgroundimage"));

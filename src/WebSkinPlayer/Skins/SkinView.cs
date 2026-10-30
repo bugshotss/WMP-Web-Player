@@ -684,6 +684,7 @@ public sealed class SkinView : SubviewElement
         }
         if (e.ClipsChildren) { dc.PushClip(new RectangleGeometry(b)); pushes++; }
         var (behind, above) = e.ChildrenBehindAndAbove;
+        e.RenderBackdrop(dc, b);
         foreach (var c in behind) RenderElement(dc, c);
         e.Render(dc, b);
         foreach (var c in above) RenderElement(dc, c);
