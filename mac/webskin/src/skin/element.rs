@@ -639,8 +639,8 @@ impl Skin {
         c
     }
 
-    /// Children drawn before the container's own background (negative zIndex in a VIEW or
-    /// SUBVIEW, seen through its transparent holes as in Goo and Creed), then those drawn after.
+    /// Children drawn under a container's background image (negative zIndex, seen through its
+    /// holes as in Goo, Creed and Radio), then those drawn after. They lie over its colour.
     pub fn children_behind_and_above(&self, v: ViewId, e: usize) -> (Vec<usize>, Vec<usize>) {
         if self.el(v, e).kind == Kind::ButtonGroup {
             return (vec![], vec![]);
@@ -672,8 +672,21 @@ impl Skin {
     /// A subview's background, keyed by its transparencyColor (and its clippingColor, except for a
     /// title-less VIEW, whose clippingColor pixels are keyed out of the composed window instead).
     fn background(&self, v: ViewId, e: usize) -> Option<Rc<SkinBitmap>> {
+        self.background_keyed(v, e, false)
+    }
+
+    /// The colour a title-less VIEW cuts from its window (its clippingColor).
+    pub fn view_cut_color(&self, v: ViewId) -> Option<u32> {
+        (!self.get_bool(v, 0, "titlebar") && self.get_str(v, 0, "clippingimage").is_empty())
+            .then(|| parse_color(&self.get_str(v, 0, "clippingcolor")))
+            .flatten()
+    }
+
+    /// `background`, with a title-less VIEW's clippingColor pixels cleared too when `cut_view`
+    /// (children behind the view show through them).
+    fn background_keyed(&self, v: ViewId, e: usize, cut_view: bool) -> Option<Rc<SkinBitmap>> {
         let name = self.get_str(v, e, "backgroundimage");
-        let second = (self.get_str(v, e, "clippingimage").is_empty() && (e != 0 || self.get_bool(v, 0, "titlebar")))
+        let second = (self.get_str(v, e, "clippingimage").is_empty() && (e != 0 || cut_view || self.get_bool(v, 0, "titlebar")))
             .then(|| parse_color(&self.get_str(v, e, "clippingcolor")))
             .flatten();
         self.images.get(
@@ -973,7 +986,10 @@ impl Skin {
     pub fn render_element(&self, v: ViewId, e: usize, c: &mut Canvas, b: Rect, clip: Rect) {
         let el = self.el(v, e);
         match el.kind {
-            Kind::View | Kind::Subview => self.render_subview(v, e, c, b, clip),
+            Kind::View | Kind::Subview => {
+                self.render_subview_fill(v, e, c, b, clip);
+                self.render_subview_image(v, e, c, b, clip, false);
+            }
             Kind::Button => self.render_button(v, e, c, b, clip),
             Kind::ButtonGroup => self.render_group(v, e, c, b, clip),
             Kind::Slider => self.render_slider(v, e, c, b, clip),
@@ -993,7 +1009,8 @@ impl Skin {
         }
     }
 
-    fn render_subview(&self, v: ViewId, e: usize, c: &mut Canvas, b: Rect, clip: Rect) {
+    /// A subview's backgroundColor, which lies under any children behind its image.
+    pub fn render_subview_fill(&self, v: ViewId, e: usize, c: &mut Canvas, b: Rect, clip: Rect) {
         let mut color = parse_color(&self.get_str(v, e, "backgroundcolor"));
         if color.is_none() {
             // A common typo WMP tolerated.
@@ -1002,7 +1019,24 @@ impl Skin {
         if let Some(color) = color {
             c.fill(b, color, clip);
         }
-        let Some(bg) = self.background(v, e) else { return };
+    }
+
+    /// Whether a subview's background image has a visible pixel at local (x, y): there it covers
+    /// the children behind it.
+    pub fn background_covers(&self, v: ViewId, e: usize, x: f64, y: f64) -> bool {
+        let Some(bg) = self.background_keyed(v, e, e == 0) else { return false };
+        if self.get_bool(v, e, "resizebackgroundimage") || self.get_bool(v, e, "resizeimages") {
+            return true;
+        }
+        let (mut ix, mut iy) = (x.floor() as i32, y.floor() as i32);
+        if self.get_bool(v, e, "backgroundtiled") && bg.width > 0 && bg.height > 0 {
+            (ix, iy) = (ix.rem_euclid(bg.width as i32), iy.rem_euclid(bg.height as i32));
+        }
+        bg.alpha(ix, iy) > 0
+    }
+
+    pub fn render_subview_image(&self, v: ViewId, e: usize, c: &mut Canvas, b: Rect, clip: Rect, cut_view: bool) {
+        let Some(bg) = self.background_keyed(v, e, cut_view) else { return };
         let name = self.get_str(v, e, "backgroundimage");
         let frame = self.frame(v, e, &bg, &name);
         let (bw, bh) = (f64::from(bg.width), f64::from(bg.height));

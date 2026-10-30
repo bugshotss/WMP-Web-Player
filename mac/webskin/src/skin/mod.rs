@@ -980,6 +980,40 @@ mod tests {
         assert!(shared.errors.borrow().is_empty(), "{:?}", shared.errors.borrow());
     }
 
+    /// A VIEW's colour lies under the children behind it, which show through its image's holes and
+    /// its clippingColor (Radio, Yahoo); clippingColor with nothing behind still cuts the window.
+    #[test]
+    fn children_behind_a_view_show_through_its_holes_and_clipping_colour() {
+        let dir = temp_dir("viewbehind");
+        // Columns: 0-4 frame (red), 5-9 transparent hole, 10-14 clipping colour (yellow), 15-19 yellow.
+        image::RgbaImage::from_fn(20, 10, |x, _| match x {
+            0..=4 => image::Rgba([255, 0, 0, 255]),
+            5..=9 => image::Rgba([0, 0, 0, 0]),
+            _ => image::Rgba([255, 255, 0, 255]),
+        })
+        .save(dir.join("frame.png"))
+        .unwrap();
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="20" height="10" titleBar="false" backgroundImage="frame.png" backgroundColor="#000080" clippingColor="#FFFF00">
+                 <SUBVIEW id="screen" zIndex="-1" width="15" height="10" backgroundColor="#00FF00"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        let canvas = shared.read(|s| s.render_view(v, 1.0)).unwrap();
+        let rgba = |x, y| canvas.pixmap.pixel(x, y).map(|p| (p.red(), p.green(), p.blue(), p.alpha()));
+        assert_eq!(rgba(2, 5), Some((255, 0, 0, 255)), "the frame covers the child");
+        assert_eq!(rgba(7, 5), Some((0, 255, 0, 255)), "the child shows through the hole, over the view's colour");
+        assert_eq!(rgba(12, 5), Some((0, 255, 0, 255)), "and through the clipping colour");
+        assert_eq!(rgba(17, 5), Some((0, 0, 0, 0)), "clipping colour with nothing behind cuts the window");
+        let (frame_hit, hole_hit, screen) =
+            shared.read(|s| (s.hit_test_point(v, 2.0, 5.0), s.hit_test_point(v, 7.0, 5.0), s.view(v).by_id["screen"]));
+        assert_eq!(frame_hit, Some(0));
+        assert_eq!(hole_hit, Some(screen));
+    }
+
     /// A film strip one frame wide steps top to bottom (Windows XP Media Center Edition's seek bar).
     #[test]
     fn a_custom_slider_steps_through_a_vertical_strip() {

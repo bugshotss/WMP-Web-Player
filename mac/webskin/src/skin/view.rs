@@ -721,6 +721,26 @@ impl Skin {
         Some(canvas)
     }
 
+    /// A VIEW with children behind it: its colour, them, then its image. They show through the
+    /// image's holes and its clippingColor (Yahoo's screen); the window is cut only where that
+    /// colour has nothing behind it.
+    fn render_view_over_behind(&self, v: ViewId, c: &mut Canvas, b: Rect, clip: Rect, behind: &[usize]) {
+        self.render_subview_fill(v, 0, c, b, clip);
+        let Some(mut layer) = c.layer() else { return };
+        for &child in behind {
+            self.render_tree(v, child, &mut layer, clip, true);
+        }
+        c.composite(&layer, 1.0, None);
+        self.render_subview_image(v, 0, c, b, clip, true);
+        let (Some(cut), Some(raw)) = (self.view_cut_color(v), self.images.get_raw(&self.get_str(v, 0, "backgroundimage"))) else { return };
+        let Some(mask) = c.mask(b.x, b.y, |x, y| if raw.rgb(x, y) == Some(cut) { 255 } else { 0 }) else { return };
+        for ((px, &m), under) in c.pixmap.pixels_mut().iter_mut().zip(mask.data()).zip(layer.pixmap.pixels()) {
+            if m > 0 && under.alpha() == 0 {
+                *px = tiny_skia::PremultipliedColorU8::TRANSPARENT;
+            }
+        }
+    }
+
     fn render_tree(&self, v: ViewId, e: usize, canvas: &mut Canvas, clip: Rect, view_mask: bool) {
         // A VIEW is the window itself; WMP ignored visible="false" on it.
         if e != 0 && !self.visible(v, e) {
@@ -737,10 +757,18 @@ impl Skin {
         let own_clip = if self.clips_children(v, e) { clip.intersect(&b) } else { clip };
         let draw = |target: &mut Canvas| {
             let (behind, above) = self.children_behind_and_above(v, e);
-            for c in behind {
-                self.render_tree(v, c, target, own_clip, true);
+            if behind.is_empty() {
+                self.render_element(v, e, target, b, own_clip);
+            } else if e == 0 {
+                self.render_view_over_behind(v, target, b, own_clip, &behind);
+            } else {
+                // Its colour, then the children behind, then its image.
+                self.render_subview_fill(v, e, target, b, own_clip);
+                for c in behind {
+                    self.render_tree(v, c, target, own_clip, true);
+                }
+                self.render_subview_image(v, e, target, b, own_clip, false);
             }
-            self.render_element(v, e, target, b, own_clip);
             for c in above {
                 self.render_tree(v, c, target, own_clip, true);
             }
@@ -772,7 +800,11 @@ impl Skin {
 
     pub fn hit_test_point(&self, v: ViewId, x: f64, y: f64) -> Option<usize> {
         let (behind, above) = self.children_behind_and_above(v, 0);
-        self.hit_in(v, &above, x, y).or_else(|| self.hit_test(v, 0, x, y).then_some(0)).or_else(|| self.hit_in(v, &behind, x, y))
+        let own = self.hit_test(v, 0, x, y);
+        self.hit_in(v, &above, x, y)
+            .or_else(|| (own && (behind.is_empty() || self.background_covers(v, 0, x, y))).then_some(0))
+            .or_else(|| self.hit_in(v, &behind, x, y))
+            .or_else(|| own.then_some(0))
     }
 
     /// The topmost of `children` (in draw order) under the point, searching into containers in
@@ -803,11 +835,16 @@ impl Skin {
             if let Some(inner) = self.hit_in(v, &above, x, y) {
                 return Some(inner);
             }
-            if !self.get_bool(v, c, "passthrough") && self.hit_test(v, c, lx, ly) && self.mask_allows(v, c, lx, ly) {
+            let own = !self.get_bool(v, c, "passthrough") && self.hit_test(v, c, lx, ly) && self.mask_allows(v, c, lx, ly);
+            // Its image covers the children behind it; its colour lies under them.
+            if own && (behind.is_empty() || self.background_covers(v, c, lx, ly)) {
                 return Some(c);
             }
             if let Some(inner) = self.hit_in(v, &behind, x, y) {
                 return Some(inner);
+            }
+            if own {
+                return Some(c);
             }
         }
         None
