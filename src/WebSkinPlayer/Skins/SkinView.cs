@@ -719,9 +719,11 @@ public sealed class SkinView : SubviewElement
             var (behind, above) = c.ChildrenBehindAndAbove;
             var hit = HitIn(above, p);
             if (hit != null) return hit;
-            if (!c.GetBool("passthrough") && c.HitTest(local) && c.MaskAllows(local)) return c;
+            bool own = !c.GetBool("passthrough") && c.MaskAllows(local);
+            if (own && c.HitTestImage(local)) return c;
             hit = HitIn(behind, p);
             if (hit != null) return hit;
+            if (own && c.HitTest(local)) return c;
         }
         return null;
     }

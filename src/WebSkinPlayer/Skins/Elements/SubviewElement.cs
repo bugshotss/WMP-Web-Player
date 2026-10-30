@@ -44,6 +44,14 @@ public class SubviewElement : SkinElement
         return true;
     }
 
+    public override bool HitTestImage(Point local)
+    {
+        if (!base.HitTest(local) || !MaskAllows(local)) return false;
+        var bg = Background;
+        if (bg == null) return false;
+        return GetBool("backgroundtiled") || GetBool("resizebackgroundimage") || bg.Alpha((int)local.X, (int)local.Y) > 0;
+    }
+
     public override void RenderBackdrop(DrawingContext dc, Rect b)
     {
         int? color = SkinImages.ParseColor(GetString("backgroundcolor"));

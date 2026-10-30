@@ -238,6 +238,9 @@ public class SkinElement : ScriptObject
     /// <summary>Local hit test (point relative to element origin).</summary>
     public virtual bool HitTest(Point local) => local.X >= 0 && local.Y >= 0 && local.X < Width && local.Y < Height;
 
+    /// <summary>Hit test for what is drawn over the negative-zIndex children (not a backgroundColor).</summary>
+    public virtual bool HitTestImage(Point local) => HitTest(local);
+
     public virtual string? CurrentToolTip => NonEmpty(GetString("tooltip")) ?? NonEmpty(GetString("uptooltip"));
     protected static string? NonEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
