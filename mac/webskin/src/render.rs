@@ -45,6 +45,8 @@ pub struct Canvas {
     pub pixmap: Pixmap,
     /// Device pixels per logical pixel.
     pub scale: f32,
+    /// The logical point at the pixmap's top-left: not (0, 0) when drawing one region of a view.
+    pub origin: (f64, f64),
 }
 
 impl Canvas {
@@ -52,18 +54,39 @@ impl Canvas {
     pub fn new(width: u32, height: u32, scale: f32) -> Option<Self> {
         let w = ((width.max(1) as f32) * scale).round() as u32;
         let h = ((height.max(1) as f32) * scale).round() as u32;
-        Some(Canvas { pixmap: Pixmap::new(w, h)?, scale })
+        Some(Canvas { pixmap: Pixmap::new(w, h)?, scale, origin: (0.0, 0.0) })
     }
 
-    /// An empty canvas of the same size, for drawing a layer.
+    /// A transparent canvas for just `area` (whole logical pixels) of a larger one.
+    pub fn region(area: Rect, scale: f32) -> Option<Self> {
+        let mut c = Canvas::new(area.w as u32, area.h as u32, scale)?;
+        c.origin = (area.x, area.y);
+        Some(c)
+    }
+
+    /// An empty canvas of the same size and place, for drawing a layer.
     pub fn layer(&self) -> Option<Canvas> {
-        Some(Canvas { pixmap: Pixmap::new(self.pixmap.width(), self.pixmap.height())?, scale: self.scale })
+        Some(Canvas { pixmap: Pixmap::new(self.pixmap.width(), self.pixmap.height())?, scale: self.scale, origin: self.origin })
+    }
+
+    /// Copies a region canvas over the same place of this one.
+    pub fn paste(&mut self, part: &Canvas) {
+        let s = f64::from(self.scale);
+        let (x, y) = (((part.origin.0 - self.origin.0) * s).round() as i32, ((part.origin.1 - self.origin.1) * s).round() as i32);
+        let paint = PixmapPaint { opacity: 1.0, blend_mode: BlendMode::Source, quality: FilterQuality::Nearest };
+        self.pixmap.draw_pixmap(x, y, part.pixmap.as_ref(), &paint, Transform::identity(), None);
+    }
+
+    /// A logical point in this pixmap's device pixels.
+    fn to_device(&self, x: f64, y: f64) -> (f64, f64) {
+        let s = f64::from(self.scale);
+        ((x - self.origin.0) * s, (y - self.origin.1) * s)
     }
 
     fn device(&self, r: &Rect) -> Option<tiny_skia::Rect> {
-        let s = f64::from(self.scale);
-        let (x0, y0) = ((r.x * s).round() as f32, (r.y * s).round() as f32);
-        let (x1, y1) = ((r.right() * s).round() as f32, (r.bottom() * s).round() as f32);
+        let (x0, y0) = self.to_device(r.x, r.y);
+        let (x1, y1) = self.to_device(r.right(), r.bottom());
+        let (x0, y0, x1, y1) = (x0.round() as f32, y0.round() as f32, x1.round() as f32, y1.round() as f32);
         tiny_skia::Rect::from_ltrb(x0, y0, x1, y1).filter(|d| d.width() >= 1.0 && d.height() >= 1.0)
     }
 
@@ -77,11 +100,50 @@ impl Canvas {
         let Some(area) = self.device(&dst.intersect(&clip)) else { return };
         let s = f64::from(self.scale);
         let (sx, sy) = (dst.w / src.w * s, dst.h / src.h * s);
-        let (tx, ty) = ((dst.x * s).round() - src.x * sx, (dst.y * s).round() - src.y * sy);
+        let (dx, dy) = self.to_device(dst.x, dst.y);
+        let (tx, ty) = (dx.round() - src.x * sx, dy.round() - src.y * sy);
+        if opacity >= 1.0 {
+            self.blit_nearest(image, area, (sx, sy), (tx, ty));
+            return;
+        }
         let transform = Transform::from_row(sx as f32, 0.0, 0.0, sy as f32, tx as f32, ty as f32);
         let shader = Pattern::new(image.as_ref(), SpreadMode::Pad, FilterQuality::Nearest, opacity.clamp(0.0, 1.0), transform);
         let paint = Paint { shader, blend_mode: BlendMode::SourceOver, anti_alias: false, ..Default::default() };
         self.pixmap.fill_rect(area, &paint, Transform::identity(), None);
+    }
+
+    /// `draw_image` at full opacity: each device pixel in `area` takes the image pixel under its
+    /// centre (edge pixels repeat, as SpreadMode::Pad), drawn source-over. Several times faster
+    /// than tiny-skia's general pattern pipeline, which every skin image went through each frame.
+    fn blit_nearest(&mut self, image: &Pixmap, area: tiny_skia::Rect, scale: (f64, f64), offset: (f64, f64)) {
+        let (iw, ih) = (image.width() as i64, image.height() as i64);
+        let (pw, ph) = (self.pixmap.width() as i64, self.pixmap.height() as i64);
+        let (x0, x1) = ((area.left() as i64).max(0), (area.right() as i64).min(pw));
+        let (y0, y1) = ((area.top() as i64).max(0), (area.bottom() as i64).min(ph));
+        let src_x: Vec<usize> = (x0..x1).map(|x| (((x as f64 + 0.5 - offset.0) / scale.0).floor() as i64).clamp(0, iw - 1) as usize).collect();
+        let src = image.pixels();
+        let dst = self.pixmap.pixels_mut();
+        for y in y0..y1 {
+            let sy = (((y as f64 + 0.5 - offset.1) / scale.1).floor() as i64).clamp(0, ih - 1) as usize;
+            let src_row = &src[sy * iw as usize..(sy + 1) * iw as usize];
+            let dst_row = &mut dst[(y * pw + x0) as usize..(y * pw + x1) as usize];
+            for (d, &sx) in dst_row.iter_mut().zip(&src_x) {
+                let s = src_row[sx];
+                match s.alpha() {
+                    0 => {}
+                    255 => *d = s,
+                    a => {
+                        let inv = 255 - u32::from(a);
+                        let over = |s: u8, d: u8| (u32::from(s) + (u32::from(d) * inv + 127) / 255).min(255) as u8;
+                        let alpha = over(a, d.alpha());
+                        let ch = |s: u8, d: u8| over(s, d).min(alpha);
+                        *d =
+                            tiny_skia::PremultipliedColorU8::from_rgba(ch(s.red(), d.red()), ch(s.green(), d.green()), ch(s.blue(), d.blue()), alpha)
+                                .unwrap_or(*d);
+                    }
+                }
+            }
+        }
     }
 
     /// Fills `rect` (inside `clip`) with an opaque RGB colour.
@@ -93,9 +155,9 @@ impl Canvas {
 
     /// Draws rasterized text with its origin at logical (x, y), inside `clip`.
     pub fn draw_text(&mut self, text: &Coverage, x: f64, y: f64, rgb: u32, clip: Rect) {
-        let s = f64::from(self.scale);
         let Some(c) = self.device(&clip) else { return };
-        let (ox, oy) = ((x * s).round() as i32, (y * s).round() as i32);
+        let (ox, oy) = self.to_device(x, y);
+        let (ox, oy) = (ox.round() as i32, oy.round() as i32);
         let (cx0, cy0, cx1, cy1) = (c.left() as i32, c.top() as i32, c.right() as i32, c.bottom() as i32);
         let (w, h) = (self.pixmap.width() as i32, self.pixmap.height() as i32);
         let (r, g, b) = ((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
@@ -128,9 +190,9 @@ impl Canvas {
         let s = f64::from(self.scale);
         let data = mask.data_mut();
         for y in 0..h {
-            let ly = ((f64::from(y) + 0.5) / s - oy).floor() as i32;
+            let ly = ((f64::from(y) + 0.5) / s + self.origin.1 - oy).floor() as i32;
             for x in 0..w {
-                let lx = ((f64::from(x) + 0.5) / s - ox).floor() as i32;
+                let lx = ((f64::from(x) + 0.5) / s + self.origin.0 - ox).floor() as i32;
                 data[(y * w + x) as usize] = alpha(lx, ly);
             }
         }

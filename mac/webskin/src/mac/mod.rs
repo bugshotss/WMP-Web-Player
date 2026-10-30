@@ -97,7 +97,16 @@ pub(crate) fn redraw(v: ViewId) {
     let scale = w.scale();
     let canvas = shared.read(|s| s.views.get(v).and_then(Option::as_ref).and_then(|_| s.render_view(v, scale)));
     if let Some(c) = canvas {
-        w.present(&c);
+        w.present(c);
+    }
+}
+
+fn redraw_region(v: ViewId, area: Rect) {
+    let (Some(shared), Some(w)) = (current(), window_for(v)) else { return };
+    let scale = w.scale();
+    let part = shared.read(|s| s.views.get(v).and_then(Option::as_ref).and_then(|_| s.render_region(v, scale, area)));
+    if !part.is_some_and(|p| w.present_region(&p)) {
+        redraw(v);
     }
 }
 
@@ -162,6 +171,10 @@ impl Host for MacHost {
 
     fn redraw(&self, v: ViewId) {
         redraw(v);
+    }
+
+    fn redraw_region(&self, v: ViewId, area: Rect) {
+        redraw_region(v, area);
     }
 
     fn set_tooltip(&self, v: ViewId, text: Option<&str>) {

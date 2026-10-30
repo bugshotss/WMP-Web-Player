@@ -67,6 +67,8 @@ pub struct View {
     scrollers: HashMap<usize, Instant>,
     frame_due: Cell<Option<Instant>>,
     pub dirty: bool,
+    /// Where it changed since the last redraw, when only part of it did (visualizers).
+    pub dirty_region: Option<Rect>,
     pub error_count: usize,
     tooltip: Option<String>,
 }
@@ -92,6 +94,7 @@ impl View {
             scrollers: HashMap::new(),
             frame_due: Cell::new(None),
             dirty: true,
+            dirty_region: None,
             error_count: 0,
             tooltip: None,
         }
@@ -99,6 +102,17 @@ impl View {
 
     pub fn invalidate(&mut self) {
         self.dirty = true;
+    }
+
+    /// Only `area` changed: the host may redraw just that.
+    pub fn invalidate_region(&mut self, area: Rect) {
+        self.dirty_region = Some(match self.dirty_region {
+            Some(r) => {
+                let (x, y) = (r.x.min(area.x), r.y.min(area.y));
+                Rect::new(x, y, r.right().max(area.right()) - x, r.bottom().max(area.bottom()) - y)
+            }
+            None => area,
+        });
     }
 
     /// An animated GIF needs a redraw in `ms` milliseconds.
@@ -688,12 +702,35 @@ impl Skin {
         Some(canvas)
     }
 
+    /// Draws just `area` of the view (widened to whole skin pixels), for pasting over the last
+    /// full drawing. Gives the same pixels there as [`Skin::render_view`].
+    pub fn render_region(&self, v: ViewId, scale: f32, area: Rect) -> Option<Canvas> {
+        let (w, h) = (f64::from(self.width(v, 0).clamp(1, 4000)), f64::from(self.height(v, 0).clamp(1, 4000)));
+        let (x0, y0) = (area.x.floor().max(0.0), area.y.floor().max(0.0));
+        let (x1, y1) = (area.right().ceil().min(w), area.bottom().ceil().min(h));
+        let area = Rect::new(x0, y0, x1 - x0, y1 - y0);
+        if area.is_empty() {
+            return None;
+        }
+        let mut canvas = Canvas::region(area, scale)?;
+        let keys = self.view_keys(v);
+        self.render_tree(v, 0, &mut canvas, area, keys.is_empty());
+        if !keys.is_empty() {
+            canvas.key_out(&keys);
+        }
+        Some(canvas)
+    }
+
     fn render_tree(&self, v: ViewId, e: usize, canvas: &mut Canvas, clip: Rect, view_mask: bool) {
         // A VIEW is the window itself; WMP ignored visible="false" on it.
         if e != 0 && !self.visible(v, e) {
             return;
         }
         let b = self.bounds(v, e);
+        // Nothing of it (or of what it clips) is inside the area being drawn.
+        if e != 0 && b.intersect(&clip).is_empty() && (self.clips_children(v, e) || self.el(v, e).children.is_empty()) {
+            return;
+        }
         let opacity = self.opacity(v, e);
         let mask = if e == 0 && !view_mask { None } else { self.clip_mask(v, e) };
         let host = self.host_mask(v, e);

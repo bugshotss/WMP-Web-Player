@@ -67,6 +67,10 @@ pub trait Host {
     fn begin_move(&self, _view: ViewId) {}
     fn begin_resize(&self, _view: ViewId, _edge: &str) {}
     fn redraw(&self, _view: ViewId) {}
+    /// Only `area` of the view changed since the last redraw.
+    fn redraw_region(&self, view: ViewId, _area: Rect) {
+        self.redraw(view);
+    }
     fn set_tooltip(&self, _view: ViewId, _text: Option<&str>) {}
     fn set_cursor(&self, _view: ViewId, _cursor: &str) {}
     /// Shows a menu at view coordinates; returns the chosen item's index path.
@@ -648,12 +652,22 @@ impl Shared {
                 Deferred::Close => self.close(),
             }
         }
-        let dirty: Vec<ViewId> = self.with(|s| {
+        let dirty: Vec<(ViewId, Option<Rect>)> = self.with(|s| {
             let views: Vec<ViewId> = s.open_views().collect();
-            views.into_iter().filter(|&v| std::mem::take(&mut s.view_mut(v).dirty)).collect()
+            views
+                .into_iter()
+                .filter_map(|v| {
+                    let view = s.view_mut(v);
+                    let region = view.dirty_region.take();
+                    if std::mem::take(&mut view.dirty) { Some((v, None)) } else { region.map(|r| (v, Some(r))) }
+                })
+                .collect()
         });
-        for v in dirty {
-            self.host.redraw(v);
+        for (v, region) in dirty {
+            match region {
+                Some(area) => self.host.redraw_region(v, area),
+                None => self.host.redraw(v),
+            }
         }
     }
 
@@ -964,6 +978,40 @@ mod tests {
         assert_eq!(black.pixmap.pixel(30, 20).map(|p| (p.red(), p.green(), p.blue())), Some((0, 0, 0)));
         assert_ne!(drawn.pixmap.pixel(30, 20).map(|p| (p.red(), p.green(), p.blue())), Some((0, 0, 0)), "Album Art's disc is drawn");
         assert!(shared.errors.borrow().is_empty(), "{:?}", shared.errors.borrow());
+    }
+
+    #[test]
+    fn a_region_draws_the_same_pixels_as_the_whole_view() {
+        let dir = temp_dir("region");
+        let magenta = image::Rgba([255, 0, 255, 255]);
+        image::RgbaImage::from_fn(30, 20, |x, y| if (x + y) % 7 == 0 { magenta } else { image::Rgba([(x * 8) as u8, (y * 12) as u8, 90, 255]) })
+            .save(dir.join("bg.png"))
+            .unwrap();
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="40" height="30" backgroundColor="none" titleBar="false" transparencyColor="#000001">
+                 <SUBVIEW left="3" top="2" backgroundImage="bg.png" clippingColor="#FF00FF" alphaBlend="200">
+                   <TEXT left="1" top="3" value="Glue" foregroundColor="#FFFFFF"/>
+                   <EFFECTS zIndex="-1" left="4" top="4" width="20" height="10"/>
+                 </SUBVIEW>
+                 <SUBVIEW left="15" top="12" width="20" height="15" backgroundColor="#204060" alphaBlend="128"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        for scale in [1.0, 2.0] {
+            let full = shared.read(|s| s.render_view(v, scale)).unwrap();
+            for area in [Rect::new(7.0, 6.0, 20.0, 10.0), Rect::new(0.0, 0.0, 9.5, 31.0), Rect::new(14.2, 11.7, 3.1, 9.0)] {
+                let part = shared.read(|s| s.render_region(v, scale, area)).unwrap();
+                let (ox, oy) = ((part.origin.0 * f64::from(scale)) as u32, (part.origin.1 * f64::from(scale)) as u32);
+                for y in 0..part.pixmap.height() {
+                    for x in 0..part.pixmap.width() {
+                        assert_eq!(part.pixmap.pixel(x, y), full.pixmap.pixel(ox + x, oy + y), "scale {scale}, area {area:?}, pixel {x},{y}");
+                    }
+                }
+            }
+        }
     }
 
     /// Left: a dome subview (magenta left strip, clear elsewhere) over a visualization, as in

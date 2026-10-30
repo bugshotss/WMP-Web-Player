@@ -213,7 +213,7 @@ impl Skin {
             let Some(mut r) = self.el_mut(v, e).state.vis.take() else { continue };
             r.render(frame, &self.vis_context, (b.w * scale).round() as usize, (b.h * scale).round() as usize);
             self.el_mut(v, e).state.vis = Some(r);
-            self.view_mut(v).invalidate();
+            self.view_mut(v).invalidate_region(b);
         }
     }
 

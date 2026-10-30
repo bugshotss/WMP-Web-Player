@@ -14,7 +14,7 @@ use objc2_core_foundation::CFRetained;
 use objc2_core_graphics::{CGColorSpace, CGImage, CGImageAlphaInfo, CGImageByteOrderInfo};
 use objc2_foundation::{NSObject, NSPoint, NSRect, NSSize, NSString};
 use objc2_quartz_core::{kCAFilterNearest, kCAGravityTopLeft};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 pub struct SurfaceIvars {
     view: Cell<ViewId>,
@@ -292,6 +292,8 @@ pub struct ViewWindow {
     /// Where the window was last placed or seen, as skin coordinates (top-left).
     placed: Cell<(f64, f64)>,
     size: Cell<(f64, f64)>,
+    /// The drawing shown now, which a redrawn region is pasted into.
+    shown: RefCell<Option<crate::render::Canvas>>,
 }
 
 impl ViewWindow {
@@ -311,17 +313,33 @@ impl ViewWindow {
         window.setContentView(Some(&surface));
         window.makeKeyAndOrderFront(None);
         window.makeFirstResponder(Some(&surface));
-        ViewWindow { window, surface, placed: Cell::new((left, top)), size: Cell::new((w, h)) }
+        ViewWindow { window, surface, placed: Cell::new((left, top)), size: Cell::new((w, h)), shown: RefCell::new(None) }
     }
 
     /// Shows a rendered view.
-    pub fn present(&self, canvas: &crate::render::Canvas) {
-        let Some(image) = cg_image(&canvas.pixmap) else { return };
+    pub fn present(&self, canvas: crate::render::Canvas) {
+        // In the display's own colour space the window server shows the pixels as they are, with
+        // no conversion each frame (and skins look as on Windows, which didn't colour-manage).
+        let space = self.window.colorSpace().and_then(|s| s.CGColorSpace());
+        let Some(image) = cg_image(&canvas.pixmap, space.as_deref()) else { return };
         if let Some(layer) = self.surface.layer() {
             let obj: &AnyObject = unsafe { &*CFRetained::as_ptr(&image).as_ptr().cast::<AnyObject>() };
             unsafe { layer.setContents(Some(obj)) };
             layer.setContentsScale(f64::from(canvas.scale));
         }
+        *self.shown.borrow_mut() = Some(canvas);
+    }
+
+    /// Pastes a redrawn region into the shown drawing and presents it. False when there is no
+    /// drawing of that scale to paste into (the caller then redraws all of it).
+    pub fn present_region(&self, part: &crate::render::Canvas) -> bool {
+        let Some(mut canvas) = self.shown.borrow_mut().take() else { return false };
+        if canvas.scale != part.scale {
+            return false;
+        }
+        canvas.paste(part);
+        self.present(canvas);
+        true
     }
 
     pub fn scale(&self) -> f32 {
@@ -441,8 +459,9 @@ impl ViewWindow {
 }
 
 /// A CoreGraphics image of a premultiplied RGBA pixmap.
-fn cg_image(pm: &tiny_skia::Pixmap) -> Option<CFRetained<CGImage>> {
-    let space = CGColorSpace::new_device_rgb()?;
+fn cg_image(pm: &tiny_skia::Pixmap, space: Option<&CGColorSpace>) -> Option<CFRetained<CGImage>> {
+    let device = CGColorSpace::new_device_rgb()?;
+    let space = space.unwrap_or(&device);
     let info = CGImageByteOrderInfo::Order32Big.0 | CGImageAlphaInfo::PremultipliedLast.0;
     let mut data = pm.data().to_vec();
     let ctx = unsafe {
@@ -452,7 +471,7 @@ fn cg_image(pm: &tiny_skia::Pixmap) -> Option<CFRetained<CGImage>> {
             pm.height() as usize,
             8,
             pm.width() as usize * 4,
-            Some(&space),
+            Some(space),
             info,
         )
     }?;
