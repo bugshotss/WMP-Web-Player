@@ -886,4 +886,46 @@ mod tests {
         });
         assert_eq!(*commands.borrow(), vec![Command::Play]);
     }
+
+    /// Left: a dome subview (magenta left strip, clear elsewhere) over a visualization, as in
+    /// Plus! Bionic Dot. Right: a red frame with a magenta hole over a green negative-zIndex
+    /// subview, as in Creed and Goo.
+    #[test]
+    fn visualizations_stay_in_their_subview_and_negative_zindex_sits_behind() {
+        let dir = temp_dir("zindex");
+        let magenta = image::Rgba([255, 0, 255, 255]);
+        image::RgbaImage::from_fn(20, 20, |x, _| if x < 5 { magenta } else { image::Rgba([0, 0, 0, 0]) }).save(dir.join("dome.png")).unwrap();
+        image::RgbaImage::from_fn(20, 20, |x, _| if (5..15).contains(&x) { magenta } else { image::Rgba([255, 0, 0, 255]) })
+            .save(dir.join("frame.png"))
+            .unwrap();
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="40" height="20" backgroundColor="none" titleBar="false">
+                 <SUBVIEW backgroundImage="dome.png" transparencyColor="#FF00FF">
+                   <EFFECTS zIndex="-15" width="20" height="20"/>
+                 </SUBVIEW>
+                 <SUBVIEW id="frame" left="20" backgroundImage="frame.png" transparencyColor="#FF00FF">
+                   <SUBVIEW id="behind" zIndex="-1" width="20" height="20" backgroundColor="#00FF00"/>
+                 </SUBVIEW>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        let canvas = shared.read(|s| s.render_view(v, 1.0)).unwrap();
+        let rgba = |x, y| {
+            let p = canvas.pixmap.pixel(x, y).unwrap();
+            (p.red(), p.green(), p.blue(), p.alpha())
+        };
+        assert_eq!(rgba(2, 10).3, 0, "the visualization is cut out of the dome's magenta");
+        assert_eq!(rgba(12, 10), (0, 0, 0, 255), "the visualization shows inside the dome");
+        assert_eq!(rgba(21, 10), (255, 0, 0, 255), "the frame covers its negative-zIndex child");
+        assert_eq!(rgba(30, 10), (0, 255, 0, 255), "the child shows through the frame's hole");
+        let (hit_frame, hit_hole, frame, behind) = shared.read(|s| {
+            let id = |name: &str| s.view(v).by_id[name];
+            (s.hit_test_point(v, 21.0, 10.0), s.hit_test_point(v, 30.0, 10.0), id("frame"), id("behind"))
+        });
+        assert_eq!(hit_frame, Some(frame), "clicks on the frame reach the frame, not the child behind it");
+        assert_eq!(hit_hole, Some(behind), "clicks through the hole reach the child");
+    }
 }

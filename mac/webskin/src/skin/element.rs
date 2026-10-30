@@ -640,6 +640,16 @@ impl Skin {
         c
     }
 
+    /// Children drawn before the container's own background (negative zIndex in a VIEW or
+    /// SUBVIEW, seen through its transparent holes as in Goo and Creed), then those drawn after.
+    pub fn children_behind_and_above(&self, v: ViewId, e: usize) -> (Vec<usize>, Vec<usize>) {
+        if self.el(v, e).kind == Kind::ButtonGroup {
+            return (vec![], vec![]);
+        }
+        let behind_allowed = self.clips_children(v, e);
+        self.children_in_draw_order(v, e).into_iter().partition(|&c| behind_allowed && self.get_int(v, c, "zindex") < 0)
+    }
+
     pub fn clips_children(&self, v: ViewId, e: usize) -> bool {
         matches!(self.el(v, e).kind, Kind::View | Kind::Subview)
     }
@@ -740,6 +750,23 @@ impl Skin {
         self.images.get(&img, clip, 0.0, 1.0, None)
     }
 
+    /// WMP hosted EFFECTS and VIDEO as a window cut to their parent subview's shape. With no
+    /// clippingColor that shape is the transparencyColor outline (Plus! Bionic Dot's dome); other
+    /// children paint over those pixels. Returns the shape and where its top-left sits.
+    pub fn host_mask(&self, v: ViewId, e: usize) -> Option<(Rc<SkinBitmap>, Rect)> {
+        let el = self.el(v, e);
+        if !matches!(el.kind, Kind::Effects | Kind::Video) {
+            return None;
+        }
+        let p = el.parent?;
+        if self.el(v, p).kind != Kind::Subview || self.mask_tiled(v, p) || self.clip_mask(v, p).is_some() {
+            return None;
+        }
+        let key = parse_color(&self.get_str(v, p, "transparencycolor"))?;
+        let shape = self.images.get_raw(&self.get_str(v, p, "backgroundimage"))?.shape_of(key)?;
+        Some((Rc::new(shape), self.bounds(v, p)))
+    }
+
     pub fn mask_tiled(&self, v: ViewId, e: usize) -> bool {
         matches!(self.el(v, e).kind, Kind::View | Kind::Subview)
             && self.get_bool(v, e, "backgroundtiled")
@@ -747,6 +774,12 @@ impl Skin {
     }
 
     pub fn mask_allows(&self, v: ViewId, e: usize, lx: f64, ly: f64) -> bool {
+        if let Some((m, at)) = self.host_mask(v, e) {
+            let b = self.bounds(v, e);
+            if m.alpha((lx + b.x - at.x).floor() as i32, (ly + b.y - at.y).floor() as i32) == 0 {
+                return false;
+            }
+        }
         let Some(m) = self.clip_mask(v, e) else { return true };
         let (mut x, mut y) = (lx.floor() as i32, ly.floor() as i32);
         if self.mask_tiled(v, e) && m.width > 0 && m.height > 0 {

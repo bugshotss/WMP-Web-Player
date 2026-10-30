@@ -693,25 +693,35 @@ impl Skin {
         let b = self.bounds(v, e);
         let opacity = self.opacity(v, e);
         let mask = if e == 0 && !view_mask { None } else { self.clip_mask(v, e) };
+        let host = self.host_mask(v, e);
         let own_clip = if self.clips_children(v, e) { clip.intersect(&b) } else { clip };
         let draw = |target: &mut Canvas| {
+            let (behind, above) = self.children_behind_and_above(v, e);
+            for c in behind {
+                self.render_tree(v, c, target, own_clip, true);
+            }
             self.render_element(v, e, target, b, own_clip);
-            if self.el(v, e).kind != Kind::ButtonGroup {
-                for c in self.children_in_draw_order(v, e) {
-                    self.render_tree(v, c, target, own_clip, true);
-                }
+            for c in above {
+                self.render_tree(v, c, target, own_clip, true);
             }
         };
-        if opacity < 0.999 || mask.is_some() {
+        if opacity < 0.999 || mask.is_some() || host.is_some() {
             let Some(mut layer) = canvas.layer() else { return };
             draw(&mut layer);
             let tiled = self.mask_tiled(v, e);
-            let device_mask = mask.and_then(|m| {
-                canvas.mask(b.x, b.y, |x, y| {
-                    let (mw, mh) = (m.width as i32, m.height as i32);
-                    if tiled && mw > 0 && mh > 0 { m.alpha(x.rem_euclid(mw), y.rem_euclid(mh)) } else { m.alpha(x, y) }
-                })
-            });
+            let own_alpha = |x: i32, y: i32| {
+                let Some(m) = &mask else { return 255 };
+                let (mw, mh) = (m.width as i32, m.height as i32);
+                if tiled && mw > 0 && mh > 0 { m.alpha(x.rem_euclid(mw), y.rem_euclid(mh)) } else { m.alpha(x, y) }
+            };
+            let device_mask = match &host {
+                Some((hm, at)) => {
+                    let (dx, dy) = ((b.x - at.x) as i32, (b.y - at.y) as i32);
+                    canvas.mask(b.x, b.y, |x, y| own_alpha(x, y).min(hm.alpha(x + dx, y + dy)))
+                }
+                None if mask.is_some() => canvas.mask(b.x, b.y, own_alpha),
+                None => None,
+            };
             canvas.composite(&layer, opacity, device_mask.as_ref());
         } else {
             draw(canvas);
@@ -721,11 +731,14 @@ impl Skin {
     // ---- input -------------------------------------------------------------------------
 
     pub fn hit_test_point(&self, v: ViewId, x: f64, y: f64) -> Option<usize> {
-        self.hit_in(v, 0, x, y).or_else(|| self.hit_test(v, 0, x, y).then_some(0))
+        let (behind, above) = self.children_behind_and_above(v, 0);
+        self.hit_in(v, &above, x, y).or_else(|| self.hit_test(v, 0, x, y).then_some(0)).or_else(|| self.hit_in(v, &behind, x, y))
     }
 
-    fn hit_in(&self, v: ViewId, container: usize, x: f64, y: f64) -> Option<usize> {
-        for c in self.children_in_draw_order(v, container).into_iter().rev() {
+    /// The topmost of `children` (in draw order) under the point, searching into containers in
+    /// the order they draw: children above, the container itself, then children behind it.
+    fn hit_in(&self, v: ViewId, children: &[usize], x: f64, y: f64) -> Option<usize> {
+        for &c in children.iter().rev() {
             if !self.visible(v, c) {
                 continue;
             }
@@ -737,26 +750,24 @@ impl Skin {
                 }
                 continue;
             }
-            if self.clips_children(v, c) {
-                if lx < 0.0 || ly < 0.0 || lx >= f64::from(self.width(v, c)) || ly >= f64::from(self.height(v, c)) {
-                    continue;
-                }
-                if !self.mask_allows(v, c, lx, ly) {
-                    continue;
-                }
-                if let Some(inner) = self.hit_in(v, c, x, y) {
-                    return Some(inner);
-                }
-            } else if !self.el(v, c).children.is_empty()
-                && let Some(inner) = self.hit_in(v, c, x, y)
+            if self.clips_children(v, c)
+                && (lx < 0.0
+                    || ly < 0.0
+                    || lx >= f64::from(self.width(v, c))
+                    || ly >= f64::from(self.height(v, c))
+                    || !self.mask_allows(v, c, lx, ly))
             {
-                return Some(inner);
-            }
-            if self.get_bool(v, c, "passthrough") {
                 continue;
             }
-            if self.hit_test(v, c, lx, ly) && self.mask_allows(v, c, lx, ly) {
+            let (behind, above) = self.children_behind_and_above(v, c);
+            if let Some(inner) = self.hit_in(v, &above, x, y) {
+                return Some(inner);
+            }
+            if !self.get_bool(v, c, "passthrough") && self.hit_test(v, c, lx, ly) && self.mask_allows(v, c, lx, ly) {
                 return Some(c);
+            }
+            if let Some(inner) = self.hit_in(v, &behind, x, y) {
+                return Some(inner);
             }
         }
         None
