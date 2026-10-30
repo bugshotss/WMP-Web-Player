@@ -146,9 +146,11 @@ define_class!(
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
             let v = self.ivars().view.get();
-            let Some(vk) = virtual_key(event) else { return };
-            if let Some(shared) = current() {
-                shared.with(|s| s.views.get(v).is_some_and(Option::is_some) && s.key_down(v, vk, modifiers(event)));
+            let handled = virtual_key(event).is_some_and(|vk| {
+                current().is_some_and(|shared| shared.with(|s| s.views.get(v).is_some_and(Option::is_some) && s.key_down(v, vk, modifiers(event))))
+            });
+            if !handled {
+                let _: () = unsafe { msg_send![super(self), keyDown: event] };
             }
         }
 
@@ -249,7 +251,7 @@ impl Surface {
             }
             MouseResult::ContextMenu => {
                 if shared.show_app_menu(v, "context", (x, y)) == Some(AppAction::Quit) {
-                    super::quit();
+                    shared.close();
                 }
             }
             _ => {}

@@ -64,7 +64,7 @@ fn mtm() -> MainThreadMarker {
     MainThreadMarker::new().expect("the app runs on the main thread")
 }
 
-pub(crate) fn quit() {
+fn quit() {
     let app = NSApplication::sharedApplication(mtm());
     app.terminate(None);
 }
