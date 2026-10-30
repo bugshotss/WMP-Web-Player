@@ -674,19 +674,28 @@ public sealed class SkinView : SubviewElement
             pushes++;
         }
         if (e.ClipsChildren) { dc.PushClip(new RectangleGeometry(b)); pushes++; }
+        var (behind, above) = e.ChildrenBehindAndAbove;
+        foreach (var c in behind) RenderElement(dc, c);
         e.Render(dc, b);
-        if (e is not ButtonGroupElement)
-            foreach (var c in e.ChildrenInDrawOrder) RenderElement(dc, c);
+        foreach (var c in above) RenderElement(dc, c);
         for (int i = 0; i < pushes; i++) dc.Pop();
     }
 
     // ---- input -----------------------------------------------------------------------------
 
-    public SkinElement? HitTestPoint(Point p) => HitIn(this, p) ?? (HitTest(p) ? this : null);
-
-    SkinElement? HitIn(SkinElement container, Point p)
+    public SkinElement? HitTestPoint(Point p)
     {
-        foreach (var c in container.ChildrenInDrawOrder.Reverse())
+        var (behind, above) = ChildrenBehindAndAbove;
+        return HitIn(above, p) ?? (HitTest(p) ? this : null) ?? HitIn(behind, p);
+    }
+
+    /// <summary>
+    /// The topmost of <paramref name="children"/> (in draw order) under the point, searching into containers
+    /// in the order they draw: children above, the container itself, then children behind it.
+    /// </summary>
+    SkinElement? HitIn(SkinElement[] children, Point p)
+    {
+        foreach (var c in Enumerable.Reverse(children))
         {
             if (!c.Visible) continue;
             var abs = c.Absolute;
@@ -696,20 +705,13 @@ public sealed class SkinView : SubviewElement
                 if (g.HitTest(local) && g.MaskAllows(local)) return g.ElementAt(local);
                 continue;
             }
-            if (c.ClipsChildren)
-            {
-                if (local.X < 0 || local.Y < 0 || local.X >= c.Width || local.Y >= c.Height) continue;
-                if (!c.MaskAllows(local)) continue;
-                var inner = HitIn(c, p);
-                if (inner != null) return inner;
-            }
-            else if (c.Children.Count > 0)
-            {
-                var inner = HitIn(c, p);
-                if (inner != null) return inner;
-            }
-            if (c.GetBool("passthrough")) continue;
-            if (c.HitTest(local) && c.MaskAllows(local)) return c;
+            if (c.ClipsChildren && (local.X < 0 || local.Y < 0 || local.X >= c.Width || local.Y >= c.Height || !c.MaskAllows(local))) continue;
+            var (behind, above) = c.ChildrenBehindAndAbove;
+            var hit = HitIn(above, p);
+            if (hit != null) return hit;
+            if (!c.GetBool("passthrough") && c.HitTest(local) && c.MaskAllows(local)) return c;
+            hit = HitIn(behind, p);
+            if (hit != null) return hit;
         }
         return null;
     }

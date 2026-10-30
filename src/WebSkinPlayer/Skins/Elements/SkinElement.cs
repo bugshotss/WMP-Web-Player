@@ -126,7 +126,21 @@ public class SkinElement : ScriptObject
         }
     }
 
-    public IEnumerable<SkinElement> ChildrenInDrawOrder => Children.OrderBy(c => c.ZIndex).ThenBy(c => c.Order);
+    /// <summary>
+    /// Children drawn before the container's own background (negative zIndex in a VIEW or SUBVIEW,
+    /// seen through its transparent holes as in Goo and Creed), then those drawn after. A button
+    /// group draws its buttons itself.
+    /// </summary>
+    public (SkinElement[] Behind, SkinElement[] Above) ChildrenBehindAndAbove
+    {
+        get
+        {
+            if (this is ButtonGroupElement) return ([], []);
+            var all = Children.OrderBy(c => c.ZIndex).ThenBy(c => c.Order).ToArray();
+            if (!ClipsChildren) return ([], all);
+            return (all.Where(c => c.ZIndex < 0).ToArray(), all.Where(c => c.ZIndex >= 0).ToArray());
+        }
+    }
 
     // Track size so alignment can be applied on parent resize.
     int _lastW = -1, _lastH = -1;

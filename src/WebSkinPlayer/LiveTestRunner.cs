@@ -144,7 +144,13 @@ public static class LiveTestRunner
             if (p.Opacity < 0.99) faded.Add($"{p.Tag}{(p.Id != null ? "#" + p.Id : "")}={p.Opacity * 255:0}");
         }
         var order = new List<SkinElement>();
-        void Walk(SkinElement e) { order.Add(e); foreach (var c in e.ChildrenInDrawOrder) Walk(c); }
+        void Walk(SkinElement e)
+        {
+            var (behind, above) = e.ChildrenBehindAndAbove;
+            foreach (var c in behind) Walk(c);
+            order.Add(e);
+            foreach (var c in above) Walk(c);
+        }
         Walk(view);
         int at = order.IndexOf(fx);
         var centre = new Point(b.X + b.Width / 2, b.Y + b.Height / 2);
