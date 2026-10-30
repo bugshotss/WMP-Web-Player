@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Default, Debug)]
 pub struct Summary {
@@ -49,7 +49,11 @@ pub(crate) fn load_offscreen(path: &Path, chooser: bool) -> Result<(Rc<Shared>, 
 fn applied_windows(path: &Path) -> Result<Vec<(String, Canvas)>, String> {
     let shared = Shared::load(path, Box::new(NoMedia), Settings::scratch(), Rc::new(NullHost), false).map_err(|e| e.0)?;
     shared.open_main_view();
-    shared.tick(Instant::now());
+    // Two seconds of timers: some skins open their main window from one (World of Warcraft).
+    let start = Instant::now();
+    for step in 1..=20 {
+        shared.tick(start + Duration::from_millis(step * 100));
+    }
     Ok(shared.read(|s| {
         s.open_views()
             .filter_map(|v| {
