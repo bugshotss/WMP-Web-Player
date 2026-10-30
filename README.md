@@ -250,8 +250,11 @@ silicon; Intel Macs can build it from source.
 - **What it follows:** whatever the Mac shows in Now Playing (Spotify, Music, or a browser tab playing SoundCloud
   or YouTube). Play, pause, next, previous and seeking go back to that app.
 - **Volume and mute** work the Mac's output volume, because macOS has no per-app volume mixer.
-- **Not there yet:** visualizations (the area stays black), full mode, the taskbar widget and the screen saver. The
+- **Visualizations:** Bars and Waves, Battery and Album Art, as on Windows, picked from the skin or from
+  **Visualizations** in its right-click menu. They listen to what the Mac plays, which needs macOS 14.2 or later: the
+  first time a skin shows one, macOS asks to let WebSkin Player record system audio. Nothing is recorded or saved. The
   old WMP visualization plug-ins are Windows DLLs and can't run on a Mac.
+- **Not there yet:** full mode, the taskbar widget, the screen saver and visualization colours.
 - **WMP's own resources:** a few skins use strings, images or scripts from Windows' `wmploc.dll`. Copy
   `wmploc.dll` (and `wmploc.dll.mui`, if you have it) from a Windows PC into
   `~/Library/Application Support/WebSkin Player`. Without it those parts are missing and the skin carries on.

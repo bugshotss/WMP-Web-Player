@@ -1,5 +1,7 @@
 //! The macOS app: one window per open skin view, a menu bar, and the Now Playing session.
 
+mod audio_tap;
+mod core_audio;
 mod nowplaying;
 mod volume;
 mod window;
@@ -7,6 +9,7 @@ mod window;
 use crate::render::Rect;
 use crate::settings::Settings;
 use crate::skin::{Host, MenuItem, Shared, ViewId};
+use crate::vis::{Analyzer, AudioRing};
 use block2::RcBlock;
 use nowplaying::{NowPlaying, Source};
 use objc2::rc::Retained;
@@ -40,6 +43,25 @@ struct AppState {
     /// A new skin is replacing the open one: its closing doesn't quit.
     replacing: bool,
     first_skin: Option<PathBuf>,
+    /// What the Mac plays, analysed for the visualizations; started when a skin first shows one.
+    audio: Option<Audio>,
+}
+
+struct Audio {
+    /// None when capture couldn't start; the visualizers then see silence.
+    _tap: Option<audio_tap::AudioTap>,
+    analyzer: Analyzer,
+}
+
+impl Audio {
+    fn start() -> Audio {
+        let ring = AudioRing::shared();
+        let tap = audio_tap::AudioTap::start(ring.clone())
+            .inspect(|_| crate::log("Audio capture started for the visualizations"))
+            .inspect_err(|e| crate::log(&format!("Audio capture failed: {e}")))
+            .ok();
+        Audio { _tap: tap, analyzer: Analyzer::new(ring) }
+    }
 }
 
 thread_local! {
@@ -345,10 +367,17 @@ fn tick() {
     }
     let Some(shared) = current() else { return };
     let windows: Vec<(ViewId, Rc<ViewWindow>)> = APP.with(|a| a.borrow().windows.iter().map(|(v, w)| (*v, w.clone())).collect());
+    let scale = windows.iter().map(|(_, w)| f64::from(w.scale())).fold(1.0, f64::max);
     for (v, w) in windows {
         if let Some((left, top)) = w.moved() {
             shared.with(|s| s.window_moved(v, left, top));
         }
+    }
+    if shared.wants_visualization() {
+        // Out of APP while the skin runs: its scripts may call back into the host.
+        let mut audio = APP.with(|a| a.borrow_mut().audio.take()).unwrap_or_else(Audio::start);
+        shared.render_visualizations(audio.analyzer.analyze(), scale);
+        APP.with(|a| a.borrow_mut().audio = Some(audio));
     }
     shared.tick(Instant::now());
 }

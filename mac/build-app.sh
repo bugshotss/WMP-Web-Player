@@ -38,6 +38,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSAudioCaptureUsageDescription</key><string>WebSkin Player listens to what your Mac plays to draw the visualizations. Nothing is recorded or saved.</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

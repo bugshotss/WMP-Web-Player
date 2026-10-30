@@ -20,6 +20,9 @@ pub struct Settings {
     pub skin_windows: HashMap<String, (f64, f64)>,
     /// mediacenter.* values skins stored, as "value|type".
     pub media_center: HashMap<String, String>,
+    /// The visualization last chosen (mediacenter.effectType), by id, and its preset.
+    pub vis_effect: String,
+    pub vis_preset: usize,
     #[serde(skip)]
     disabled: bool,
 }

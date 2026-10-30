@@ -11,6 +11,7 @@ mod settings;
 mod skin;
 mod text;
 mod value;
+mod vis;
 mod wms;
 
 #[cfg(target_os = "macos")]

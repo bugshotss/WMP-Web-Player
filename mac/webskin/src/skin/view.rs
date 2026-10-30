@@ -382,6 +382,9 @@ impl Skin {
                 }
             }
             Kind::EqualizerSettings => self.equalizer_changed(v, e, name),
+            Kind::Effects | Kind::Video if matches!(name, "currenteffecttype" | "effecttype" | "currentpreset" | "preset") => {
+                self.effects_changed(v, e, name)
+            }
             _ => {}
         }
         self.view_mut(v).invalidate();
@@ -1392,8 +1395,10 @@ impl Skin {
                 self.host_call(move |h| h.begin_move(v));
                 Value::Null
             }
-            (Kind::Effects | Kind::Video, "geteffecttitle" | "geteffecttype" | "getpresettitle") => Value::Str(String::new()),
-            (Kind::Effects | Kind::Video, _) => Value::Null,
+            (Kind::Effects | Kind::Video, _) => {
+                let index = (!a.is_empty()).then(|| num(0).max(0.0) as usize);
+                self.effects_call(v, e, name, index)
+            }
             (Kind::EqualizerSettings, "presettitle") => {
                 element::EQ_PRESETS.get(num(0).max(0.0) as usize).map_or(Value::Str(String::new()), |p| p.0.into())
             }

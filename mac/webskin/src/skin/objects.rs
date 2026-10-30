@@ -356,8 +356,7 @@ impl Skin {
             (ObjRef::Dvd, "domain") => String::new().into(),
             (ObjRef::Error, "errorcount") | (ObjRef::Cdroms, "count") => 0.0.into(),
 
-            (ObjRef::MediaCenter, "effecttype" | "effectpresettitle" | "effecttitle") => String::new().into(),
-            (ObjRef::MediaCenter, "effectpreset") => 0.0.into(),
+            (ObjRef::MediaCenter, "effecttype" | "effectpreset" | "effectpresettitle" | "effecttitle") => self.mediacenter_vis(&name),
             (ObjRef::MediaCenter, "videozoom") => self.expando(o, &name).unwrap_or(100.0.into()),
             (ObjRef::MediaCenter, "videostretchtofit" | "showeffects" | "showtitles") => self.expando(o, &name).unwrap_or(true.into()),
             (ObjRef::MediaCenter, "contrastmode") => false.into(),
@@ -443,7 +442,8 @@ impl Skin {
             (ObjRef::Event, n) => {
                 self.event.insert(n.to_string(), value);
             }
-            (ObjRef::MediaCenter, "effecttype" | "effectpreset" | "effectpresettitle" | "effecttitle" | "contrastmode") => {}
+            (ObjRef::MediaCenter, "effecttype" | "effectpreset" | "effectpresettitle" | "effecttitle") => self.set_mediacenter_vis(&name, &value),
+            (ObjRef::MediaCenter, "contrastmode") => {}
             (ObjRef::MediaCenter, _) => {
                 if !self.preview {
                     self.settings.media_center.insert(name.clone(), store(&value));

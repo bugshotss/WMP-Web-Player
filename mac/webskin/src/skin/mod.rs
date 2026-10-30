@@ -7,6 +7,7 @@
 mod element;
 mod objects;
 mod view;
+mod visual;
 
 pub use element::Kind;
 pub use view::{MouseButton, MouseResult, View};
@@ -18,6 +19,7 @@ use crate::render::Rect;
 use crate::script::{JsRef, ScriptHost};
 use crate::settings::Settings;
 use crate::value::{ObjRef, Value};
+use crate::vis::{VisContext, VisFrame};
 use crate::wms::{self, WmsNode};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -144,6 +146,8 @@ pub struct Skin {
     deferred: Vec<Deferred>,
     work_area: Rect,
     screen: (f64, f64),
+    /// The track as the Album Art visualization shows it.
+    vis_context: VisContext,
 }
 
 impl Skin {
@@ -229,6 +233,7 @@ impl Skin {
                     if name == "MediaChange" {
                         self.record_history();
                         self.images.set_artwork(self.player.source.artwork());
+                        self.refresh_vis_context();
                         self.invalidate_all();
                     }
                     if matches!(name, "MediaChange" | "CurrentItemChange") {
@@ -336,6 +341,20 @@ impl Skin {
             (MenuItem::item("SoundCloud", true, false), AppAction::OpenUrl("https://soundcloud.com/discover")),
             (MenuItem::item("YouTube Music", true, false), AppAction::OpenUrl("https://music.youtube.com/")),
         ];
+        let (shown, shown_preset) = self.global_vis();
+        let (vis_items, vis_actions): (Vec<_>, Vec<_>) = crate::vis::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let (items, actions) = d
+                    .presets
+                    .iter()
+                    .enumerate()
+                    .map(|(p, name)| (MenuItem::item(name, true, i == shown && p == shown_preset), AppAction::Visualization(i, p)))
+                    .unzip();
+                (MenuItem::submenu(d.title, items), AppAction::Submenu(actions))
+            })
+            .unzip();
         let flat = |list: Vec<(MenuItem, AppAction)>| list.into_iter().unzip();
         match which.to_lowercase().as_str() {
             "open" => flat(open),
@@ -347,12 +366,19 @@ impl Skin {
                 let items = vec![
                     MenuItem::submenu("Open", open_items),
                     MenuItem::submenu("Play", play_items),
+                    MenuItem::submenu("Visualizations", vis_items),
                     MenuItem::separator(),
                     MenuItem::item("Skin Chooser…", true, false),
                     MenuItem::separator(),
                     MenuItem::item("Quit WebSkin Player", true, false),
                 ];
-                let mut actions = vec![AppAction::Submenu(open_actions), AppAction::Submenu(play_actions), AppAction::None, AppAction::ChooseSkin];
+                let mut actions = vec![
+                    AppAction::Submenu(open_actions),
+                    AppAction::Submenu(play_actions),
+                    AppAction::Submenu(vis_actions),
+                    AppAction::None,
+                    AppAction::ChooseSkin,
+                ];
                 actions.extend([AppAction::None, AppAction::Quit]);
                 (items, actions)
             }
@@ -374,6 +400,8 @@ pub enum AppAction {
     VolumeDown,
     ChooseSkin,
     OpenUrl(&'static str),
+    /// A visualization and preset, by index into `vis::ALL`.
+    Visualization(usize, usize),
     Quit,
 }
 
@@ -436,6 +464,7 @@ impl Shared {
             deferred: vec![],
             work_area: host.work_area(),
             screen: host.screen_size(),
+            vis_context: VisContext::default(),
         };
         let shared = Rc::new(Shared {
             skin: RefCell::new(skin),
@@ -449,6 +478,7 @@ impl Shared {
             s.record_history();
             let art = s.player.source.artwork();
             s.images.set_artwork(art);
+            s.refresh_vis_context();
         });
         Ok(shared)
     }
@@ -716,10 +746,21 @@ impl Shared {
             AppAction::VolumeDown => self.player(|p| p.set_volume(p.volume() - 5)),
             AppAction::ChooseSkin => self.host.choose_skin(),
             AppAction::OpenUrl(url) => self.host.open_url(url),
+            AppAction::Visualization(effect, preset) => self.with(|s| s.choose_vis(*effect, *preset)),
             AppAction::Quit => return false,
             AppAction::None | AppAction::Submenu(_) => {}
         }
         true
+    }
+
+    /// Whether any visualizer can be seen, so the host knows to listen to the audio.
+    pub fn wants_visualization(&self) -> bool {
+        self.read(|s| s.wants_visualization())
+    }
+
+    /// Draws the next frame of every visible visualizer; the views redraw on the next tick.
+    pub fn render_visualizations(&self, frame: &VisFrame, scale: f64) {
+        self.with(|s| s.render_visualizers(frame, scale));
     }
 
     /// Calls the player and delivers the notifications its setters raise.
@@ -885,6 +926,44 @@ mod tests {
             s.mouse_up(v, 5.0, 45.0, MouseButton::Left, (false, false, false));
         });
         assert_eq!(*commands.borrow(), vec![Command::Play]);
+    }
+
+    #[test]
+    fn visualizers_follow_scripts_the_menu_and_mediacenter_and_draw() {
+        let dir = temp_dir("vis");
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="60" height="40" backgroundColor="#102030">
+                 <EFFECTS id="vis" width="60" height="40" currentEffectType="wmpprop:mediacenter.effectType" currentEffectType_onchange="mediacenter.effectType = currentEffectType;"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        // As if its window were showing.
+        shared.with(|s| s.view_mut(v).open = true);
+        let script = shared.script(v).unwrap();
+        let eval = |code: &str| {
+            script.execute(&format!("var out = {code};"), "test").unwrap();
+            script.get_global("out").to_str()
+        };
+        assert_eq!(eval("vis.currentEffectTitle"), "Bars and Waves");
+        assert_eq!(eval("vis.effectCount"), "3");
+        script.execute("vis.nextEffect();", "test").unwrap();
+        assert_eq!(eval("mediacenter.effectType"), "{8D2A317B-D98B-4efa-89D6-E49F0ACF98A1}", "the skin's choice becomes the player's");
+        assert_eq!(eval("vis.currentPresetTitle"), "Whirlpool");
+        script.execute("vis.previous();", "test").unwrap();
+        assert_eq!(eval("vis.currentPresetTitle"), "Scope", "previous() rolls back into the last preset of Bars and Waves");
+        assert!(shared.run_action(&AppAction::Visualization(2, 1)));
+        assert_eq!(eval("vis.currentEffectTitle + '/' + vis.currentPresetTitle"), "Album Art/Album Art");
+        assert_eq!(eval("mediacenter.effectPresetTitle"), "Album Art");
+        assert!(shared.wants_visualization());
+        let black = shared.read(|s| s.render_view(v, 1.0)).unwrap();
+        shared.render_visualizations(&VisFrame::default(), 1.0);
+        let drawn = shared.read(|s| s.render_view(v, 1.0)).unwrap();
+        assert_eq!(black.pixmap.pixel(30, 20).map(|p| (p.red(), p.green(), p.blue())), Some((0, 0, 0)));
+        assert_ne!(drawn.pixmap.pixel(30, 20).map(|p| (p.red(), p.green(), p.blue())), Some((0, 0, 0)), "Album Art's disc is drawn");
+        assert!(shared.errors.borrow().is_empty(), "{:?}", shared.errors.borrow());
     }
 
     /// Left: a dome subview (magenta left strip, clear elsewhere) over a visualization, as in

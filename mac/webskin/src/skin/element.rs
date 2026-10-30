@@ -40,8 +40,11 @@ pub struct State {
     pub scroll: f64,
     pub popup_items: Vec<String>,
     pub playlist_top: usize,
-    /// EQUALIZERSETTINGS applying a preset (its gain changes don't switch to Custom).
+    /// EQUALIZERSETTINGS applying a preset (its gain changes don't switch to Custom), or EFFECTS
+    /// reporting the visualization it switched to.
     pub applying: bool,
+    /// The visualization an EFFECTS (or stand-in VIDEO) element shows, once it has shown one.
+    pub vis: Option<crate::vis::Renderer>,
 }
 
 pub struct Element {
@@ -480,11 +483,7 @@ impl Skin {
             (Kind::Popup, "itemcount") => Some(el.state.popup_items.len().into()),
             (Kind::Playlist, "itemcount") => Some(self.history.len().into()),
             (Kind::Playlist, "playlist") => Some(crate::value::ObjRef::CurrentPlaylist.into()),
-            (Kind::Effects | Kind::Video, "currenteffecttitle") => Some(String::new().into()),
-            (Kind::Effects | Kind::Video, "currentpresettitle") => Some(String::new().into()),
-            (Kind::Effects | Kind::Video, "effectcount") => Some(1.0.into()),
-            (Kind::Effects | Kind::Video, "presetcount") => Some(1.0.into()),
-            (Kind::Effects | Kind::Video, "effectcangofullscreen" | "effecthaspropertypage") => Some(false.into()),
+            (Kind::Effects | Kind::Video, _) => self.effects_computed(v, e, name),
             _ => None,
         }
     }
@@ -980,13 +979,13 @@ impl Skin {
             Kind::Slider => self.render_slider(v, e, c, b, clip),
             Kind::CustomSlider => self.render_custom_slider(v, e, c, b, clip),
             Kind::Text => self.render_text(v, e, c, b, clip),
-            Kind::Effects => self.render_effects(c, b, clip),
+            Kind::Effects => self.render_effects(v, e, c, b, clip),
             Kind::Video => {
                 if let Some(color) = parse_color(&self.get_str(v, e, "backgroundcolor")) {
                     c.fill(b, color, clip);
                 }
                 if !self.has_effects {
-                    self.render_effects(c, b, clip);
+                    self.render_effects(v, e, c, b, clip);
                 }
             }
             Kind::Playlist => self.render_playlist(v, e, c, b, clip),
@@ -1184,9 +1183,13 @@ impl Skin {
         }
     }
 
-    fn render_effects(&self, c: &mut Canvas, b: Rect, clip: Rect) {
-        if b.w >= 1.0 && b.h >= 1.0 {
-            c.fill(b, 0, clip);
+    fn render_effects(&self, v: ViewId, e: usize, c: &mut Canvas, b: Rect, clip: Rect) {
+        if b.w < 1.0 || b.h < 1.0 {
+            return;
+        }
+        match self.el(v, e).state.vis.as_ref().and_then(|r| r.image.as_ref()) {
+            Some(image) => c.draw_image(image, b, None, clip, 1.0),
+            None => c.fill(b, 0, clip),
         }
     }
 

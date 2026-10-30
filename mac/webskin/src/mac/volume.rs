@@ -1,27 +1,8 @@
 //! The Mac's output volume and mute. macOS has no per-app mixer, so a skin's volume slider works
 //! the system volume, like the keyboard's volume keys.
 
+use super::core_audio::{AudioObjectGetPropertyData, AudioObjectSetPropertyData, OUTPUT, PropertyAddress, default_output, fourcc};
 use std::ffi::c_void;
-
-#[repr(C)]
-struct PropertyAddress {
-    selector: u32,
-    scope: u32,
-    element: u32,
-}
-
-#[link(name = "CoreAudio", kind = "framework")]
-unsafe extern "C" {
-    fn AudioObjectGetPropertyData(
-        id: u32,
-        address: *const PropertyAddress,
-        qsize: u32,
-        qdata: *const c_void,
-        size: *mut u32,
-        data: *mut c_void,
-    ) -> i32;
-    fn AudioObjectSetPropertyData(id: u32, address: *const PropertyAddress, qsize: u32, qdata: *const c_void, size: u32, data: *const c_void) -> i32;
-}
 
 #[link(name = "AudioToolbox", kind = "framework")]
 unsafe extern "C" {
@@ -41,22 +22,6 @@ unsafe extern "C" {
         size: u32,
         data: *const c_void,
     ) -> i32;
-}
-
-const fn fourcc(s: &[u8; 4]) -> u32 {
-    u32::from_be_bytes(*s)
-}
-
-const SYSTEM_OBJECT: u32 = 1;
-const GLOBAL: u32 = fourcc(b"glob");
-const OUTPUT: u32 = fourcc(b"outp");
-
-fn default_output() -> Option<u32> {
-    let addr = PropertyAddress { selector: fourcc(b"dOut"), scope: GLOBAL, element: 0 };
-    let mut id = 0u32;
-    let mut size = 4u32;
-    let status = unsafe { AudioObjectGetPropertyData(SYSTEM_OBJECT, &addr, 0, std::ptr::null(), &mut size, (&raw mut id).cast()) };
-    (status == 0 && id != 0).then_some(id)
 }
 
 const VIRTUAL_MAIN_VOLUME: PropertyAddress = PropertyAddress { selector: fourcc(b"vmvc"), scope: OUTPUT, element: 0 };
