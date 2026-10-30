@@ -470,11 +470,7 @@ public sealed class SkinView : SubviewElement
     }
 
     /// <summary>Loads the view offscreen (for skin previews): runs onLoad but never shows a window.</summary>
-    public void LoadForPreview()
-    {
-        foreach (var el in _all.OfType<EffectsElement>()) { }
-        Fire("onload");
-    }
+    public void LoadForPreview() => Fire("onload");
 
     public void CloseWindow()
     {
