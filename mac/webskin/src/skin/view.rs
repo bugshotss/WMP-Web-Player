@@ -696,6 +696,7 @@ impl Skin {
         let keys = self.view_keys(v);
         let full = Rect::new(0.0, 0.0, f64::from(w), f64::from(h));
         self.render_tree(v, 0, &mut canvas, full, keys.is_empty());
+        canvas.cut_holes();
         if !keys.is_empty() {
             canvas.key_out(&keys);
         }
@@ -715,6 +716,7 @@ impl Skin {
         let mut canvas = Canvas::region(area, scale)?;
         let keys = self.view_keys(v);
         self.render_tree(v, 0, &mut canvas, area, keys.is_empty());
+        canvas.cut_holes();
         if !keys.is_empty() {
             canvas.key_out(&keys);
         }

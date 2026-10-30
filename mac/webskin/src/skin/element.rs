@@ -2,7 +2,7 @@
 
 use super::{Skin, ViewId};
 use crate::images::{self, SkinBitmap, parse_color};
-use crate::render::{Canvas, Rect};
+use crate::render::{Backdrop, Canvas, Rect};
 use crate::script::JsRef;
 use crate::text::{self, Align, TextStyle};
 use crate::value::{PType, Value};
@@ -997,6 +997,8 @@ impl Skin {
             Kind::Text => self.render_text(v, e, c, b, clip),
             Kind::Effects => self.render_effects(v, e, c, b, clip),
             Kind::Video => {
+                // WMP showed video in a window of its own, never keyed with the skin.
+                c.cover_holes(b.intersect(&clip));
                 if let Some(color) = parse_color(&self.get_str(v, e, "backgroundcolor")) {
                     c.fill(b, color, clip);
                 }
@@ -1018,6 +1020,7 @@ impl Skin {
         }
         if let Some(color) = color {
             c.fill(b, color, clip);
+            c.cover_holes(b.intersect(&clip));
         }
     }
 
@@ -1055,6 +1058,36 @@ impl Skin {
         } else {
             c.draw_image(frame, Rect::new(b.x, b.y, bw, bh), None, clip, 1.0);
         }
+        self.mark_holes(v, e, c, &bg, b, clip);
+    }
+
+    /// Where a subview's transparencyColor leaves the window open, a button or slider image painted
+    /// in that same colour is cut too (WMP keyed the composed window). A VIEW's own keys already
+    /// cut the whole window.
+    fn mark_holes(&self, v: ViewId, e: usize, c: &mut Canvas, bg: &SkinBitmap, b: Rect, clip: Rect) {
+        let key = parse_color(&self.get_str(v, e, "transparencycolor"));
+        if e == 0 || (key.is_none() && !c.has_holes()) {
+            return;
+        }
+        let raw = key.and_then(|_| self.images.get_raw(&self.get_str(v, e, "backgroundimage")));
+        let (bw, bh) = (f64::from(bg.width), f64::from(bg.height));
+        let stretched = self.get_bool(v, e, "resizebackgroundimage") || self.get_bool(v, e, "resizeimages");
+        let tiled = self.get_bool(v, e, "backgroundtiled") && bg.width > 0 && bg.height > 0;
+        c.mark_holes(b.intersect(&clip), |x, y| {
+            let (lx, ly) = (x - b.x, y - b.y);
+            let (ix, iy) = if stretched {
+                ((lx * bw / b.w).floor() as i32, (ly * bh / b.h).floor() as i32)
+            } else if tiled {
+                ((lx.floor() as i32).rem_euclid(bg.width as i32), (ly.floor() as i32).rem_euclid(bg.height as i32))
+            } else {
+                (lx.floor() as i32, ly.floor() as i32)
+            };
+            match (key, &raw) {
+                (Some(k), Some(raw)) if raw.rgb(ix, iy) == Some(k) => Backdrop::Open(k),
+                _ if bg.alpha(ix, iy) > 0 => Backdrop::Covered,
+                _ => Backdrop::Outside,
+            }
+        });
     }
 
     fn button_image(&self, v: ViewId, e: usize) -> Option<Rc<SkinBitmap>> {
@@ -1230,6 +1263,8 @@ impl Skin {
         if b.w < 1.0 || b.h < 1.0 {
             return;
         }
+        // A visualization ran in a window of its own, never keyed with the skin.
+        c.cover_holes(b.intersect(&clip));
         match self.el(v, e).state.vis.as_ref().and_then(|r| r.image.as_ref()) {
             Some(image) => c.draw_image(image, b, None, clip, 1.0),
             None => c.fill(b, 0, clip),

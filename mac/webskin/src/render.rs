@@ -2,6 +2,8 @@
 //! show crisp skins), colour fills, text, and layers for opacity and clipping masks.
 
 use crate::text::Coverage;
+use std::cell::RefCell;
+use std::rc::Rc;
 use tiny_skia::{BlendMode, FilterQuality, Mask, Paint, Pattern, Pixmap, PixmapPaint, Shader, SpreadMode, Transform};
 
 /// A rectangle in logical (skin) pixels.
@@ -47,6 +49,20 @@ pub struct Canvas {
     pub scale: f32,
     /// The logical point at the pixmap's top-left: not (0, 0) when drawing one region of a view.
     pub origin: (f64, f64),
+    /// Per device pixel, the transparencyColor a subview left open there with nothing under it
+    /// (stored with [`HOLE`] set, so black is a key too). Shared with this canvas's layers.
+    holes: Rc<RefCell<Vec<u32>>>,
+}
+
+const HOLE: u32 = 1 << 24;
+
+/// What a subview's background is at one of its pixels.
+pub enum Backdrop {
+    /// Its transparencyColor: see-through.
+    Open(u32),
+    /// A visible pixel.
+    Covered,
+    Outside,
 }
 
 impl Canvas {
@@ -54,7 +70,7 @@ impl Canvas {
     pub fn new(width: u32, height: u32, scale: f32) -> Option<Self> {
         let w = ((width.max(1) as f32) * scale).round() as u32;
         let h = ((height.max(1) as f32) * scale).round() as u32;
-        Some(Canvas { pixmap: Pixmap::new(w, h)?, scale, origin: (0.0, 0.0) })
+        Some(Canvas { pixmap: Pixmap::new(w, h)?, scale, origin: (0.0, 0.0), holes: Rc::default() })
     }
 
     /// A transparent canvas for just `area` (whole logical pixels) of a larger one.
@@ -66,7 +82,12 @@ impl Canvas {
 
     /// An empty canvas of the same size and place, for drawing a layer.
     pub fn layer(&self) -> Option<Canvas> {
-        Some(Canvas { pixmap: Pixmap::new(self.pixmap.width(), self.pixmap.height())?, scale: self.scale, origin: self.origin })
+        Some(Canvas {
+            pixmap: Pixmap::new(self.pixmap.width(), self.pixmap.height())?,
+            scale: self.scale,
+            origin: self.origin,
+            holes: self.holes.clone(),
+        })
     }
 
     /// Copies a region canvas over the same place of this one.
@@ -197,6 +218,54 @@ impl Canvas {
             }
         }
         Some(mask)
+    }
+
+    /// Records, inside `area`, the pixels a subview's background leaves open (where nothing is
+    /// drawn yet) and the ones it covers. `at` gives its backdrop at a logical point.
+    pub fn mark_holes(&mut self, area: Rect, at: impl Fn(f64, f64) -> Backdrop) {
+        let Some(d) = self.device(&area) else { return };
+        let mut holes = self.holes.borrow_mut();
+        let w = self.pixmap.width() as usize;
+        let pixels = self.pixmap.pixels();
+        let s = f64::from(self.scale);
+        for y in d.top() as usize..(d.bottom() as usize).min(self.pixmap.height() as usize) {
+            let ly = (y as f64 + 0.5) / s + self.origin.1;
+            for x in d.left() as usize..(d.right() as usize).min(w) {
+                let i = y * w + x;
+                match at((x as f64 + 0.5) / s + self.origin.0, ly) {
+                    Backdrop::Open(key) if pixels[i].alpha() == 0 => {
+                        if holes.is_empty() {
+                            holes.resize(pixels.len(), 0);
+                        }
+                        holes[i] = key | HOLE;
+                    }
+                    Backdrop::Covered if !holes.is_empty() => holes[i] = 0,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub fn has_holes(&self) -> bool {
+        !self.holes.borrow().is_empty()
+    }
+
+    /// Something drawn over `area` fills the holes there.
+    pub fn cover_holes(&mut self, area: Rect) {
+        if self.has_holes() {
+            self.mark_holes(area, |_, _| Backdrop::Covered);
+        }
+    }
+
+    /// Clears the opaque pixels drawn in a hole's own colour: WMP keyed the composed window, so
+    /// a button painted in that colour over the hole was cut too.
+    pub fn cut_holes(&mut self) {
+        let holes = self.holes.borrow();
+        for (p, &h) in self.pixmap.pixels_mut().iter_mut().zip(holes.iter()) {
+            if h != 0 && p.alpha() == 255 && (u32::from(p.red()) << 16 | u32::from(p.green()) << 8 | u32::from(p.blue())) == h & !HOLE {
+                *p = tiny_skia::PremultipliedColorU8::TRANSPARENT;
+            }
+        }
     }
 
     /// Clears every opaque pixel whose colour is one of `keys` (a VIEW's clippingColor and

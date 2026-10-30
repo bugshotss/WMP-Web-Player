@@ -1014,6 +1014,44 @@ mod tests {
         assert_eq!(hole_hit, Some(screen));
     }
 
+    /// World of Warcraft's sliders paint the body's magenta key where the body is open; WMP cut
+    /// that from the window.
+    #[test]
+    fn a_key_colour_painted_over_a_subview_hole_is_cut() {
+        let dir = temp_dir("holes");
+        let (pink, grey, blue) = (image::Rgba([255, 0, 255, 255]), image::Rgba([90, 90, 90, 255]), image::Rgba([0, 0, 255, 255]));
+        // Columns 0-9 the body's key (open), 10-19 the body.
+        image::RgbaImage::from_fn(20, 10, |x, _| if x < 10 { pink } else { grey }).save(dir.join("body.png")).unwrap();
+        // Over the hole: pink, then blue; over the body: pink, then nothing.
+        image::RgbaImage::from_fn(20, 5, |x, _| match x {
+            0..=4 | 10..=14 => pink,
+            5..=9 => blue,
+            _ => image::Rgba([0, 0, 0, 0]),
+        })
+        .save(dir.join("button.png"))
+        .unwrap();
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="20" height="10" backgroundColor="none" titleBar="false">
+                 <SUBVIEW id="body" backgroundImage="body.png" transparencyColor="#FF00FF"/>
+                 <SUBVIEW id="drawer" zIndex="1" top="5" width="5" height="5" backgroundColor="#FF00FF"/>
+                 <BUTTON id="b" zIndex="2" image="button.png"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        let canvas = shared.read(|s| s.render_view(v, 2.0)).unwrap();
+        let rgba = |x: u32, y: u32| canvas.pixmap.pixel(x * 2, y * 2).map(|p| (p.red(), p.green(), p.blue(), p.alpha()));
+        assert_eq!(rgba(2, 2), Some((0, 0, 0, 0)), "the key painted over the hole is cut");
+        assert_eq!(rgba(7, 2), Some((0, 0, 255, 255)), "other colours over the hole stay");
+        assert_eq!(rgba(12, 2), Some((255, 0, 255, 255)), "the key painted over the body stays");
+        assert_eq!(rgba(7, 7), Some((0, 0, 0, 0)), "the hole itself");
+        assert_eq!(rgba(2, 7), Some((255, 0, 255, 255)), "a subview filling the hole covers it");
+        let part = shared.read(|s| s.render_region(v, 2.0, Rect::new(0.0, 0.0, 10.0, 5.0))).unwrap();
+        assert_eq!(part.pixmap.pixel(4, 4).map(|p| p.alpha()), Some(0), "a redrawn region cuts it too");
+    }
+
     /// A film strip one frame wide steps top to bottom (Windows XP Media Center Edition's seek bar).
     #[test]
     fn a_custom_slider_steps_through_a_vertical_strip() {
