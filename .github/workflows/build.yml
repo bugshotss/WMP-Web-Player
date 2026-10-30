@@ -1,4 +1,4 @@
-# Builds the installer and portable zip on every push and pull request.
+# Builds the Windows installer and portable zip, and the Mac app, on every push and pull request.
 # Pushing a tag like v0.2.0 also publishes them as a GitHub release, which installed copies
 # of the app pick up as "Update available".
 name: Build
@@ -65,3 +65,43 @@ jobs:
           $flags = @('--generate-notes', '--title', "WebSkin Player $v")
           if ($v.Contains('-')) { $flags += '--prerelease' }
           gh release create '${{ github.ref_name }}' @files @flags
+
+  mac:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: mac
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check formatting and lints
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      - name: Build the app
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then export VERSION="${GITHUB_REF_NAME#v}"; fi
+          ./build-app.sh
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: WebSkinPlayer-mac
+          path: mac/dist/*.zip
+
+  publish-mac:
+    if: github.ref_type == 'tag'
+    needs: [build, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: WebSkinPlayer-mac
+
+      - name: Attach the Mac app to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload '${{ github.ref_name }}' *.zip --repo '${{ github.repository }}'
