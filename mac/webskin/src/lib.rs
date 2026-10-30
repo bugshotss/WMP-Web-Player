@@ -31,6 +31,9 @@ pub fn log(line: &str) {
     if !QUIET.load(Ordering::Relaxed) {
         eprintln!("{line}");
     }
+    if cfg!(test) {
+        return;
+    }
     let dir = settings::support_dir();
     let _ = std::fs::create_dir_all(&dir);
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("log.txt")) {
