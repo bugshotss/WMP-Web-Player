@@ -1120,15 +1120,24 @@ impl Skin {
 
     fn render_custom_slider(&self, v: ViewId, e: usize, c: &mut Canvas, b: Rect, clip: Rect) {
         let Some(strip) = self.img(v, e, "image") else { return };
-        let w = self.width(v, e);
+        let (w, h) = (self.width(v, e), self.height(v, e));
         let fw = if w > 0 { w as u32 } else { strip.width }.max(1);
-        let frames = (strip.width / fw).max(1);
+        let fh = if h > 0 { h as u32 } else { strip.height }.max(1);
+        // Frames run left to right, or top to bottom when the strip is one frame wide
+        // (Windows XP Media Center Edition's seek bar).
+        let vertical = strip.width / fw <= 1 && strip.height / fh > 1;
+        let (len, step) = if vertical { (strip.height, fh) } else { (strip.width, fw) };
+        let frames = (len / step).max(1);
         let (min, max) = (self.get_num(v, e, "min"), self.get_num(v, e, "max"));
         let r = if max - min == 0.0 { 0.0 } else { ((self.get_num(v, e, "value") - min) / (max - min)).clamp(0.0, 1.0) };
         let f = (r * f64::from(frames - 1)).round() as u32;
-        let x = (f * fw).min(strip.width.saturating_sub(fw));
-        let cw = fw.min(strip.width - x);
-        let src = Rect::new(f64::from(x), 0.0, f64::from(cw), f64::from(strip.height));
+        let at = (f * step).min(len.saturating_sub(step));
+        let size = step.min(len - at);
+        let src = if vertical {
+            Rect::new(0.0, f64::from(at), f64::from(strip.width), f64::from(size))
+        } else {
+            Rect::new(f64::from(at), 0.0, f64::from(size), f64::from(strip.height))
+        };
         c.draw_image(strip.source(), Rect::new(b.x, b.y, src.w, src.h), Some(src), clip, 1.0);
     }
 

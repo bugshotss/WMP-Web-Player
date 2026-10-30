@@ -980,6 +980,28 @@ mod tests {
         assert!(shared.errors.borrow().is_empty(), "{:?}", shared.errors.borrow());
     }
 
+    /// A film strip one frame wide steps top to bottom (Windows XP Media Center Edition's seek bar).
+    #[test]
+    fn a_custom_slider_steps_through_a_vertical_strip() {
+        let dir = temp_dir("strip");
+        let colours = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]];
+        image::RgbaImage::from_fn(4, 6, |_, y| image::Rgba(colours[(y / 2) as usize])).save(dir.join("strip.png")).unwrap();
+        image::RgbaImage::from_pixel(4, 2, image::Rgba([0, 0, 0, 255])).save(dir.join("map.png")).unwrap();
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="10" height="10" backgroundColor="none" titleBar="false">
+                 <CUSTOMSLIDER id="s" image="strip.png" positionImage="map.png" min="0" max="2" value="1"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        let canvas = shared.read(|s| s.render_view(v, 1.0)).unwrap();
+        let rgba = |x, y| canvas.pixmap.pixel(x, y).map(|p| (p.red(), p.green(), p.blue(), p.alpha()));
+        assert_eq!(rgba(1, 1), Some((0, 255, 0, 255)), "value 1 of 0..2 shows the middle frame");
+        assert_eq!(rgba(1, 2), Some((0, 0, 0, 0)), "only one frame tall");
+    }
+
     #[test]
     fn a_region_draws_the_same_pixels_as_the_whole_view() {
         let dir = temp_dir("region");
