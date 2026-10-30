@@ -620,7 +620,15 @@ public partial class FullModeWindow : Window
 
     void OnUpdateLink(object sender, RoutedEventArgs e)
     {
-        if (UpdateChecker.Available is { } update) WmpObjects.OpenInBrowser(update.PageUrl);
+        if (UpdateChecker.Available is not { } update) return;
+        var menu = new ContextMenu { PlacementTarget = (UIElement)sender, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        var install = new MenuItem { Header = "Install Now…" };
+        install.Click += (_, _) => UpdateWindow.Start(update, this);
+        var notes = new MenuItem { Header = "What's New…" };
+        notes.Click += (_, _) => WmpObjects.OpenInBrowser(update.PageUrl);
+        menu.Items.Add(install);
+        menu.Items.Add(notes);
+        menu.IsOpen = true;
     }
 
     void OnWidgetMode(object sender, RoutedEventArgs e) => App.Modes.CollapseToWidget();

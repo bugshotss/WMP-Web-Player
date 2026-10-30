@@ -79,7 +79,9 @@ Notes:
 - **Opening `.wmz` files:** Windows asks which app to use the first time you open one. Pick **WebSkin Player** and
   tick **Always**.
 - **Updates:** the app checks this repository's releases when it starts and shows **Update available** in full mode
-  (and in a skin's right-click menu). Running the new Setup.exe upgrades in place and keeps your skins and settings.
+  (and in a skin's right-click menu). **Install Now** downloads the new Setup.exe, checks it against the release's
+  checksum, and runs it: the player closes, upgrades in place and starts again, keeping your skins and settings.
+  **What's New** opens the release page. A portable copy gets the release page instead (download the new zip).
 - **Uninstall** from Settings → Apps. It asks whether to delete your downloaded skins and settings too.
 - **Portable:** the release also has a `portable.zip`. Unzip it anywhere and run `WebSkinPlayer.exe`. Put an empty
   file named `portable` next to the exe to keep settings and skins in a `Data` folder beside it.
@@ -268,14 +270,17 @@ check it for updates; local builds don't.
 - `WebSkinPlayer.exe --automate script.txt` replays commands through the real input code:
   `click x y`, `drag x1 y1 x2 y2`, `eval js`, `capture file.png`, `capturefull file.png`, `vis Bars 0`,
   `choose Bars 0` (as picked from the right-click menu), `viscolor Bars palette:Fire|hue:120|custom:#RRGGBB` (no
-  spec for the original colours), `skin path`, `widget`, `restore`, `fullmode`,
+  spec for the original colours), `update` (Install Now on an available update, without asking), `skin path`,
+  `widget`, `restore`, `fullmode`,
   `tab skins|online`, `uiclick ButtonName`, `uiselect ListName text`, `state label`, `wait ms`, `exit`.
   `record skin|full|saver|widget <frames> <ms> <scale> <dir>` saves numbered PNG frames of the skin, full mode, the
   screen saver or the taskbar widget (scale 1 = one pixel per skin pixel). Captures render at 96 DPI.
 - `--debug-input` logs every press and what it hit. `--widget` starts collapsed into the taskbar widget.
   `--exit` closes a running copy (the installer uses it).
 - `WEBSKINPLAYER_DATA=<folder>` runs with a separate data folder, e.g. to try a first run on a clean profile.
-  `WEBSKINPLAYER_TESTSIGNAL=1` feeds made-up music to the visualizers.
+  `WEBSKINPLAYER_TESTSIGNAL=1` feeds made-up music to the visualizers. `WEBSKINPLAYER_UPDATES=<url>` reads the
+  update check from a GitHub `releases/latest`-shaped JSON there instead (works in local builds too). The installer's
+  `/restart=1` starts the player once it's done, as the updater asks.
 - `WebSkinPlayer.exe --import-vis <dll|zip|msi|folder> [label]` adds visualization plug-ins and writes
   `Visualizations\import-report.txt`. Automation also has `saver start|stop|next|show <id>|?` and `capturesaver file.png`.
 - `WebSkinPlayer.VisHost32.exe probe <dll>` describes a plug-in DLL; `snapshot <dll> <clsid> <out.bmp> [preset]

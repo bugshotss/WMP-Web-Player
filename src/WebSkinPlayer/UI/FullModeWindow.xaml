@@ -50,7 +50,7 @@
             </StackPanel>
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="0,0,10,0" VerticalAlignment="Center">
                 <Button x:Name="UpdateLink" Visibility="Collapsed" Margin="0,0,14,0" Padding="10,3" Background="#FF1F6FB2" BorderBrush="#FF3FA9F5"
-                        Click="OnUpdateLink" ToolTip="Open the download page for the new version"/>
+                        Click="OnUpdateLink" ToolTip="Install the new version, or see what's new in it"/>
                 <TextBlock Text="Source" Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <ComboBox x:Name="SourceBox" Width="190" SelectionChanged="OnSourceChanged" DropDownOpened="OnSourceDropDown"/>
             </StackPanel>

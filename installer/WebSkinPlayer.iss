@@ -88,6 +88,8 @@ Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; Val
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; The player's own updater runs this silently with /restart=1: start the new version once it's in.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: RestartRequested
 
 [Code]
 // Asks a running player to quit (it may be docked in the taskbar with no window to close) and waits.
@@ -106,6 +108,11 @@ begin
     Sleep(100);
     Waited := Waited + 1;
   end;
+end;
+
+function RestartRequested(): Boolean;
+begin
+  Result := ExpandConstant('{param:restart|0}') = '1';
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;

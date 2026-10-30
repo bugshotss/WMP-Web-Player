@@ -76,6 +76,10 @@ public static class AutomationRunner
                     case "choose": // choose <id> [preset] : as picking it from the right-click Visualizations menu
                         App.Services.Visualizations.Choose(arg.Split(' ')[0], n.Length > 1 ? (int)n[1] : 0);
                         break;
+                    case "update": // update : as Install Now on an available update, without the question
+                        if (UpdateChecker.Available is { } update) UI.UpdateWindow.Start(update, null, quiet: true);
+                        else Log.Write("[auto] no update available");
+                        break;
                     case "viscolor": // viscolor <id> [palette:Fire|hue:120|custom:#RRGGBB] : as the Colors menu (no spec = original)
                     {
                         var c = arg.Split(' ', 2);

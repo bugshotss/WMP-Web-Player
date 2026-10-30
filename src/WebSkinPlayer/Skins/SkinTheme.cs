@@ -261,7 +261,12 @@ public sealed class SkinTheme
             menu.Items.Add(Item("Turn into Taskbar Widget\tCtrl+3", App.Modes.CollapseToWidget));
             menu.Items.Add(Item("Keep Widget on the Taskbar", App.Modes.ToggleWidgetAlwaysOn, true, App.Services.Settings.WidgetAlwaysOn));
             if (UpdateChecker.Available is { } update)
-                menu.Items.Add(Item($"Update Available (v{update.Version})…", () => WmpObjects.OpenInBrowser(update.PageUrl)));
+            {
+                var updateMenu = new MenuItem { Header = $"Update Available (v{update.Version})" };
+                updateMenu.Items.Add(Item("Install Now…", () => UI.UpdateWindow.Start(update, view?.Window)));
+                updateMenu.Items.Add(Item("What's New…", () => WmpObjects.OpenInBrowser(update.PageUrl)));
+                menu.Items.Add(updateMenu);
+            }
             menu.Items.Add(new Separator());
             menu.Items.Add(Item("Exit", App.Modes.Exit));
         }
