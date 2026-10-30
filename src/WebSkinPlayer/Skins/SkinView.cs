@@ -673,6 +673,19 @@ public sealed class SkinView : SubviewElement
             dc.PushOpacityMask(brush);
             pushes++;
         }
+        // Stacked opacity masks multiply, so this combines with the element's own clipping mask.
+        if (e.HostMask is { } host)
+        {
+            var brush = new System.Windows.Media.ImageBrush(host.Mask.Source)
+            {
+                ViewportUnits = BrushMappingMode.Absolute,
+                Viewport = new Rect(host.At.X, host.At.Y, host.Mask.Width, host.Mask.Height),
+                Stretch = Stretch.Fill,
+            };
+            brush.Freeze();
+            dc.PushOpacityMask(brush);
+            pushes++;
+        }
         if (e.ClipsChildren) { dc.PushClip(new RectangleGeometry(b)); pushes++; }
         var (behind, above) = e.ChildrenBehindAndAbove;
         foreach (var c in behind) RenderElement(dc, c);

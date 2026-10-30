@@ -324,8 +324,16 @@ public class SkinElement : ScriptObject
     /// <summary>True when the mask repeats (a tiled background that doubles as the clipping shape).</summary>
     public virtual bool MaskTiled => false;
 
+    /// <summary>A shape the element is also cut to, and where its top-left sits in view coordinates (null = none).</summary>
+    public virtual (SkinBitmap Mask, Point At)? HostMask => null;
+
     public bool MaskAllows(Point local)
     {
+        if (HostMask is { } host)
+        {
+            var abs = Absolute;
+            if (host.Mask.Alpha((int)(local.X + abs.X - host.At.X), (int)(local.Y + abs.Y - host.At.Y)) == 0) return false;
+        }
         var m = ClipMask;
         if (m == null) return true;
         int x = (int)local.X, y = (int)local.Y;
