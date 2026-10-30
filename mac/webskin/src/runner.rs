@@ -1,5 +1,6 @@
 //! Headless compatibility pass: `webskin --test-skins <folder|skin> <out>` loads every skin offscreen,
-//! runs its scripts, saves a PNG of the main view plus its element tree, and writes report.txt.
+//! runs its scripts, saves a PNG of its Skin Chooser picture and of each window it opens when
+//! applied, plus its element tree, and writes report.txt.
 
 use crate::player::NoMedia;
 use crate::render::Canvas;
@@ -9,6 +10,7 @@ use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Instant;
 
 #[derive(Default, Debug)]
 pub struct Summary {
@@ -43,6 +45,21 @@ pub(crate) fn load_offscreen(path: &Path, chooser: bool) -> Result<(Rc<Shared>, 
     Ok((shared, v))
 }
 
+/// Draws every window a skin opens when applied (the Skin Chooser picture is often just an image).
+fn applied_windows(path: &Path) -> Result<Vec<(String, Canvas)>, String> {
+    let shared = Shared::load(path, Box::new(NoMedia), Settings::scratch(), Rc::new(NullHost), false).map_err(|e| e.0)?;
+    shared.open_main_view();
+    shared.tick(Instant::now());
+    Ok(shared.read(|s| {
+        s.open_views()
+            .filter_map(|v| {
+                let id = s.view(v).id.clone().filter(|id| !id.is_empty()).unwrap_or_else(|| format!("view{v}"));
+                Some((id, s.render_view(v, 1.0)?))
+            })
+            .collect()
+    }))
+}
+
 pub fn run(source: &Path, out: &Path) -> std::io::Result<Summary> {
     std::fs::create_dir_all(out)?;
     crate::set_quiet(true);
@@ -58,6 +75,9 @@ pub fn run(source: &Path, out: &Path) -> std::io::Result<Summary> {
             std::fs::write(out.join(format!("{name}.tree.txt")), tree).map_err(|e| e.to_string())?;
             let (preview, pv) = load_offscreen(&file, true)?;
             let size = preview.read(|s| s.render_view(pv, 1.0)).map(|c| save_png(&trim(&c), &out.join(format!("{name}.png"))));
+            for (view, canvas) in applied_windows(&file)? {
+                save_png(&trim(&canvas), &out.join(format!("{name}.{view}.png")));
+            }
             Ok((errors, size.flatten()))
         }));
         match result {
