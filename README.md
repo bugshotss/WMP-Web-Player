@@ -244,8 +244,9 @@ silicon; Intel Macs can build it from source.
 </p>
 
 - **Install:** download `WebSkinPlayer-<version>-mac.zip` from the [latest release](../../releases/latest), unzip it
-  and move **WebSkin Player** to Applications. It isn't notarized, so the first time, right-click it and choose
-  **Open**. Then open a `.wmz` file, or pick one when the app asks.
+  and move **WebSkin Player** to Applications. It isn't notarized, so macOS blocks the first launch: open it once,
+  then go to **System Settings > Privacy & Security** and click **Open Anyway**. Then open a `.wmz` file, or pick one
+  when the app asks.
 - **What it follows:** whatever the Mac shows in Now Playing (Spotify, Music, or a browser tab playing SoundCloud
   or YouTube). Play, pause, next, previous and seeking go back to that app.
 - **Volume and mute** work the Mac's output volume, because macOS has no per-app volume mixer.

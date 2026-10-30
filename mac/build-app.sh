@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds "WebSkin Player.app" (and a zip of it) in mac/dist. VERSION overrides the Cargo version.
-# The app is ad-hoc signed, not notarized: the first launch needs right-click > Open.
+# The app is ad-hoc signed, not notarized: the first launch needs Open Anyway in Privacy & Security.
 set -eu
 
 cd "$(dirname "$0")"
