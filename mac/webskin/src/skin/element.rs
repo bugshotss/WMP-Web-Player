@@ -1063,7 +1063,8 @@ impl Skin {
 
     /// Where a subview's transparencyColor leaves the window open, a button or slider image painted
     /// in that same colour is cut too (WMP keyed the composed window). A VIEW's own keys already
-    /// cut the whole window.
+    /// cut the whole window. A subview drawn into a layer (alphaBlend below 255) sees only the
+    /// layer's pixels, so it can record a hole over something solid in the window below.
     fn mark_holes(&self, v: ViewId, e: usize, c: &mut Canvas, bg: &SkinBitmap, b: Rect, clip: Rect) {
         let key = parse_color(&self.get_str(v, e, "transparencycolor"));
         if e == 0 || (key.is_none() && !c.has_holes()) {
