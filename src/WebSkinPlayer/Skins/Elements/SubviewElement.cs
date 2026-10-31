@@ -32,24 +32,44 @@ public class SubviewElement : SkinElement
     protected override string PrimaryImage => GetString("backgroundimage");
     public override bool MaskTiled => GetBool("backgroundtiled") && GetString("clippingimage").Length == 0;
 
+    /// <summary>
+    /// Hit where it draws: its colour, or its background's pixel there in the frame shown now (anime's
+    /// animated background, 9 Series' see-through tiles). One with nothing to draw lets clicks pass
+    /// unless it uses the mouse: Constantine and Media Center group controls in window-sized empty
+    /// subviews above other controls. The VIEW itself always takes them (to drag the window).
+    /// </summary>
     public override bool HitTest(Point local)
     {
-        if (!base.HitTest(local)) return false;
-        if (!MaskAllows(local)) return false;
-        // Transparent background with no colour isn't hit (lets clicks reach the window behind).
+        if (!base.HitTest(local) || !MaskAllows(local)) return false;
+        if (BackgroundColor != null) return true;
         var bg = Background;
-        bool hasColor = SkinImages.ParseColor(GetString("backgroundcolor")) != null;
-        if (bg != null && !hasColor && !GetBool("backgroundtiled") && !GetBool("resizebackgroundimage"))
-            return bg.Alpha((int)local.X, (int)local.Y) > 0;
-        return true;
+        if (bg == null) return this is SkinView || UsesMouse;
+        return BackgroundAlpha(bg, local) > 0;
     }
 
     public override bool HitTestImage(Point local)
     {
         if (!base.HitTest(local) || !MaskAllows(local)) return false;
-        var bg = Background;
-        if (bg == null) return false;
-        return GetBool("backgroundtiled") || GetBool("resizebackgroundimage") || bg.Alpha((int)local.X, (int)local.Y) > 0;
+        return Background is { } bg && BackgroundAlpha(bg, local) > 0;
+    }
+
+    int BackgroundAlpha(SkinBitmap bg, Point local)
+    {
+        var (x, y) = PixelLookup(bg)(local);
+        return bg.Alpha(ShownFrame(bg, GetString("backgroundimage")), x, y);
+    }
+
+    /// <summary>Maps a point of this subview to the pixel of <paramref name="bg"/> drawn there: stretched, tiled or once at its top-left.</summary>
+    Func<Point, (int X, int Y)> PixelLookup(SkinBitmap bg)
+    {
+        if (Stretched && Width > 0 && Height > 0)
+        {
+            double sx = (double)bg.Width / Width, sy = (double)bg.Height / Height;
+            return p => ((int)Math.Floor(p.X * sx), (int)Math.Floor(p.Y * sy));
+        }
+        if (GetBool("backgroundtiled"))
+            return p => (((int)Math.Floor(p.X) % bg.Width + bg.Width) % bg.Width, ((int)Math.Floor(p.Y) % bg.Height + bg.Height) % bg.Height);
+        return p => ((int)Math.Floor(p.X), (int)Math.Floor(p.Y));
     }
 
     public int? BackgroundColor
@@ -97,12 +117,10 @@ public class SubviewElement : SkinElement
         if (bg == null || Width <= 0 || Height <= 0) return null;
         // WMP's dynamic images (album art) are not the skin's own pixels, so they never match its key.
         int? key = SkinImages.IsDynamic(GetString("backgroundimage")) ? null : SkinImages.ParseColor(GetString("transparencycolor"));
-        bool stretched = Stretched, tiled = GetBool("backgroundtiled");
-        double sx = (double)bg.Width / Width, sy = (double)bg.Height / Height;
+        var pixel = PixelLookup(bg);
         return local =>
         {
-            int x = (int)Math.Floor(stretched ? local.X * sx : local.X), y = (int)Math.Floor(stretched ? local.Y * sy : local.Y);
-            if (!stretched && tiled) { x = ((x % bg.Width) + bg.Width) % bg.Width; y = ((y % bg.Height) + bg.Height) % bg.Height; }
+            var (x, y) = pixel(local);
             if (key is int k && SkinImages.MatchesKey(bg.Rgb(x, y), k)) return Backdrop.Open;
             return bg.Alpha(x, y) > 0 ? Backdrop.Covered : Backdrop.Outside;
         };

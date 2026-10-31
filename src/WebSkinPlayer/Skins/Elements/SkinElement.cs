@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using WebSkinPlayer.Skins.Scripting;
 
 namespace WebSkinPlayer.Skins.Elements;
@@ -231,6 +232,15 @@ public class SkinElement : ScriptObject
         return null;
     }
 
+    static readonly string[] MouseHandlers = { "onclick", "onmousedown", "onmouseup", "ondblclick", "onmouseover", "onmouseout", "onmousemove" };
+
+    /// <summary>
+    /// Whether the element does something with the mouse: a tooltip, or a handler in its attributes or
+    /// assigned by a script. Parts that draw nothing to click take clicks only then.
+    /// </summary>
+    public bool UsesMouse => CurrentToolTip != null || MouseHandlers.Any(h =>
+        HasHandler(h) || (Values.TryGetValue(h, out var v) && v is Jint.Native.Function.Function));
+
     /// <summary>Whether a click here should be handled by the element rather than drag the window.</summary>
     public virtual bool IsInteractive =>
         HasHandler("onclick") || HasHandler("onmousedown") || HasHandler("onmouseup") || HasHandler("ondblclick");
@@ -372,13 +382,20 @@ public class SkinElement : ScriptObject
         if (!_animStart.TryGetValue(key, out var start)) _animStart[key] = start = now;
         var frame = bmp.FrameAt((now - start).TotalMilliseconds, out double next);
         if (next >= 0) View.RequestAnimationFrame(next);
+        _shown[key] = frame;
         return frame;
     }
+
+    readonly Dictionary<string, BitmapSource> _shown = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The frame of <paramref name="bmp"/> last drawn under <paramref name="key"/> (its first before any).</summary>
+    protected BitmapSource ShownFrame(SkinBitmap bmp, string key) => bmp.IsAnimated && _shown.TryGetValue(key, out var f) ? f : bmp.Source;
 
     /// <summary>Restart animated GIFs (an element shown again plays its animation from the top).</summary>
     public void RestartAnimations()
     {
         _animStart.Clear();
+        _shown.Clear();
         foreach (var c in Children) c.RestartAnimations();
     }
 

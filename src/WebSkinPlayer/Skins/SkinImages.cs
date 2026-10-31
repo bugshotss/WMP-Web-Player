@@ -78,6 +78,15 @@ public sealed class SkinBitmap
 
     /// <summary>Drawn alpha at x,y (0 when outside).</summary>
     public int Alpha(int x, int y) => (uint)x < (uint)Width && (uint)y < (uint)Height ? (Pixels[y * Width + x] >>> 24) : 0;
+
+    /// <summary>Alpha at x,y in one of this image's frames (0 when outside).</summary>
+    public int Alpha(BitmapSource frame, int x, int y)
+    {
+        if (frame == Source || (uint)x >= (uint)frame.PixelWidth || (uint)y >= (uint)frame.PixelHeight) return Alpha(x, y);
+        var px = new int[1];
+        frame.CopyPixels(new System.Windows.Int32Rect(x, y, 1, 1), px, 4, 0);
+        return px[0] >>> 24;
+    }
 }
 
 /// <summary>Per-skin image cache with colour-key and hue/saturation variants.</summary>

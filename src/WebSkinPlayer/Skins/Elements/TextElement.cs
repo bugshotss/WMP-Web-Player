@@ -142,4 +142,7 @@ public sealed class TextElement : SkinElement
     }
 
     public override bool IsInteractive => HasHandler("onclick") || HasHandler("onmousedown") || HasHandler("ondblclick") || HasHandler("onmouseup");
+
+    /// <summary>Text that does nothing with the mouse lets clicks through: Blue Crush's title box overlaps its close button.</summary>
+    public override bool HitTest(Point local) => base.HitTest(local) && UsesMouse;
 }

@@ -814,7 +814,8 @@ public sealed class SkinView : SubviewElement
             var (behind, above) = c.ChildrenBehindAndAbove;
             var hit = HitIn(above, p);
             if (hit != null) return hit;
-            bool own = !c.GetBool("passthrough") && c.MaskAllows(local);
+            // A disabled button lets clicks through: QuickSilver lays disabled buttons over its real ones as artwork.
+            bool own = !c.GetBool("passthrough") && c is not ButtonElement { Enabled: false } && c.MaskAllows(local);
             if (own && c.HitTestImage(local)) return c;
             hit = HitIn(behind, p);
             if (hit != null) return hit;
@@ -904,8 +905,7 @@ public sealed class SkinView : SubviewElement
         if (hit == null) return false;
         SetEvent(hit, p, button == MouseButton.Left ? 1 : button == MouseButton.Right ? 2 : 4);
         if (clicks == 2 && hit.HasHandler("ondblclick")) { hit.OnDoubleClick(LocalTo(hit, p)); return true; }
-        bool interactive = hit.IsInteractive && (hit.Enabled || hit is not ButtonElement);
-        if (!interactive)
+        if (!hit.IsInteractive)
         {
             if (hit != this) hit.Fire("onmousedown");
             if (HasHandler("onmousedown") && hit != this) Fire("onmousedown");
