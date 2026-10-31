@@ -26,8 +26,10 @@ public class SubviewElement : SkinElement
             GetNumber("hueshift"), GetNumber("saturation"),
             GetString("clippingimage").Length == 0 && (this is not SkinView || GetBool("titlebar")) ? SkinImages.ParseColor(GetString("clippingcolor")) : null);
 
-    public override int NaturalWidth => Background?.Width ?? 0;
-    public override int NaturalHeight => Background?.Height ?? 0;
+    // With no picture a subview holds its children, as WMP showed them: Catwoman's time digits sit in
+    // a subview given only a position. A VIEW with no picture has no size of its own.
+    public override int NaturalWidth => Background?.Width ?? (this is SkinView ? 0 : Children.Select(c => c.Left + c.Width).Append(0).Max());
+    public override int NaturalHeight => Background?.Height ?? (this is SkinView ? 0 : Children.Select(c => c.Top + c.Height).Append(0).Max());
 
     protected override string PrimaryImage => GetString("backgroundimage");
     public override bool MaskTiled => GetBool("backgroundtiled") && GetString("clippingimage").Length == 0;
