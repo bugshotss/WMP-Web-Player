@@ -1052,6 +1052,27 @@ mod tests {
         assert_eq!(part.pixmap.pixel(4, 4).map(|p| p.alpha()), Some(0), "a redrawn region cuts it too");
     }
 
+    /// YIL Online Music Awards' speakers were saved from a 16-bit desktop: their key colour
+    /// #6699FF reads back as #639CFF.
+    #[test]
+    fn a_key_colour_saved_in_16_bits_is_keyed() {
+        let dir = temp_dir("key16");
+        let colours = [[0x66, 0x99, 0xFF], [0x63, 0x9C, 0xFF], [0x63, 0x9A, 0xFF], [0x64, 0x9C, 0xFF]];
+        image::RgbImage::from_fn(4, 1, |x, _| image::Rgb(colours[x as usize])).save(dir.join("speaker.bmp")).unwrap();
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="4" height="1" backgroundColor="none" titleBar="false">
+                 <BUTTON id="speaker" image="speaker.bmp" transparencyColor="#6699FF"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        let canvas = shared.read(|s| s.render_view(v, 1.0)).unwrap();
+        let alpha: Vec<u8> = (0..4).map(|x| canvas.pixmap.pixel(x, 0).unwrap().alpha()).collect();
+        assert_eq!(alpha, [0, 0, 0, 255], "the key, its 5-5-5 and 5-6-5 forms are keyed; a near colour is not");
+    }
+
     /// A film strip one frame wide steps top to bottom (Windows XP Media Center Edition's seek bar).
     #[test]
     fn a_custom_slider_steps_through_a_vertical_strip() {

@@ -77,7 +77,7 @@ impl SkinBitmap {
     /// The image's shape: every pixel except the key colour, clear ones included (a frame image's
     /// see-through middle belongs to the shape; its colour-keyed outside does not).
     pub fn shape_of(&self, key: u32) -> Option<SkinBitmap> {
-        let px: Vec<u32> = self.original.iter().map(|&c| if c & 0xFF_FFFF == key { 0 } else { 0xFF00_0000 }).collect();
+        let px: Vec<u32> = self.original.iter().map(|&c| if matches_key(c & 0xFF_FFFF, key) { 0 } else { 0xFF00_0000 }).collect();
         SkinBitmap::from_argb(self.width, self.height, px)
     }
 
@@ -173,7 +173,7 @@ impl SkinImages {
                     .iter()
                     .map(|&c| {
                         let rgb = c & 0xFF_FFFF;
-                        if Some(rgb) == key || Some(rgb) == second_key {
+                        if key.is_some_and(|k| matches_key(rgb, k)) || second_key.is_some_and(|k| matches_key(rgb, k)) {
                             return 0;
                         }
                         let rgb = if tint { tint_rgb(rgb, hue_shift, saturation) } else { rgb };
@@ -404,6 +404,22 @@ fn tint_rgb(rgb: u32, hue_shift: f64, saturation: f64) -> u32 {
 }
 
 /// "#RRGGBB", "RRGGBB", "#RGB", "#AARRGGBB" or a named colour; "none"/"transparent" are no colour.
+/// Whether `rgb` is the key colour `key`. The key's 16-bit forms (5-5-5 and 5-6-5) match too:
+/// bitmaps saved from a 16-bit desktop hold those (YIL Online Music Awards' speakers are
+/// 0x639CFF for the key 0x6699FF).
+pub fn matches_key(rgb: u32, key: u32) -> bool {
+    rgb == key || rgb == sixteen_bit(key, 5) || rgb == sixteen_bit(key, 6)
+}
+
+/// `rgb` with each channel cut to 5 bits (green to `green_bits`) and widened back to 8.
+fn sixteen_bit(rgb: u32, green_bits: u32) -> u32 {
+    let channel = |shift: u32, bits: u32| {
+        let v = ((rgb >> shift) & 255) >> (8 - bits);
+        ((v << (8 - bits)) | (v >> (2 * bits - 8))) << shift
+    };
+    channel(16, 5) | channel(8, green_bits) | channel(0, 5)
+}
+
 pub fn parse_color(s: &str) -> Option<u32> {
     let s = s.trim();
     if s.is_empty() || s.eq_ignore_ascii_case("none") || s.eq_ignore_ascii_case("transparent") {

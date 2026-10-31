@@ -1,6 +1,7 @@
 //! A software canvas for skin views: pixel-art images (nearest-neighbour scaling, so Retina screens
 //! show crisp skins), colour fills, text, and layers for opacity and clipping masks.
 
+use crate::images::matches_key;
 use crate::text::Coverage;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -262,7 +263,7 @@ impl Canvas {
     pub fn cut_holes(&mut self) {
         let holes = self.holes.borrow();
         for (p, &h) in self.pixmap.pixels_mut().iter_mut().zip(holes.iter()) {
-            if h != 0 && p.alpha() == 255 && (u32::from(p.red()) << 16 | u32::from(p.green()) << 8 | u32::from(p.blue())) == h & !HOLE {
+            if h != 0 && p.alpha() == 255 && matches_key(u32::from(p.red()) << 16 | u32::from(p.green()) << 8 | u32::from(p.blue()), h & !HOLE) {
                 *p = tiny_skia::PremultipliedColorU8::TRANSPARENT;
             }
         }
@@ -274,7 +275,7 @@ impl Canvas {
         for p in self.pixmap.pixels_mut() {
             if p.alpha() == 255 {
                 let rgb = (u32::from(p.red()) << 16) | (u32::from(p.green()) << 8) | u32::from(p.blue());
-                if keys.contains(&rgb) {
+                if keys.iter().any(|&k| matches_key(rgb, k)) {
                     *p = tiny_skia::PremultipliedColorU8::TRANSPARENT;
                 }
             }

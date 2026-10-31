@@ -1084,7 +1084,7 @@ impl Skin {
                 (lx.floor() as i32, ly.floor() as i32)
             };
             match (key, &raw) {
-                (Some(k), Some(raw)) if raw.rgb(ix, iy) == Some(k) => Backdrop::Open(k),
+                (Some(k), Some(raw)) if raw.rgb(ix, iy).is_some_and(|rgb| images::matches_key(rgb, k)) => Backdrop::Open(k),
                 _ if bg.alpha(ix, iy) > 0 => Backdrop::Covered,
                 _ => Backdrop::Outside,
             }

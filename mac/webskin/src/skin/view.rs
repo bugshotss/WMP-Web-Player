@@ -3,7 +3,7 @@
 
 use super::element::{self, Element, Kind};
 use super::{MenuItem, Shared, Skin, ViewId, objects};
-use crate::images::parse_color;
+use crate::images::{matches_key, parse_color};
 use crate::render::{Canvas, Rect};
 use crate::resources;
 use crate::script::{JsRef, ScriptHost};
@@ -735,7 +735,7 @@ impl Skin {
         c.composite(&layer, 1.0, None);
         self.render_subview_image(v, 0, c, b, clip, true);
         let (Some(cut), Some(raw)) = (self.view_cut_color(v), self.images.get_raw(&self.get_str(v, 0, "backgroundimage"))) else { return };
-        let Some(mask) = c.mask(b.x, b.y, |x, y| if raw.rgb(x, y) == Some(cut) { 255 } else { 0 }) else { return };
+        let Some(mask) = c.mask(b.x, b.y, |x, y| if raw.rgb(x, y).is_some_and(|rgb| matches_key(rgb, cut)) { 255 } else { 0 }) else { return };
         for ((px, &m), under) in c.pixmap.pixels_mut().iter_mut().zip(mask.data()).zip(layer.pixmap.pixels()) {
             if m > 0 && under.alpha() == 0 {
                 *px = tiny_skia::PremultipliedColorU8::TRANSPARENT;
