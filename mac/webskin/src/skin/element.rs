@@ -860,6 +860,14 @@ impl Skin {
         }
     }
 
+    /// Whether an element that draws nothing to click does something with the mouse anyway.
+    fn uses_mouse(&self, v: ViewId, e: usize) -> bool {
+        self.tooltip(v, e).is_some()
+            || ["onclick", "onmousedown", "onmouseup", "ondblclick", "onmouseover", "onmouseout", "onmousemove"]
+                .iter()
+                .any(|h| self.has_handler(v, e, h))
+    }
+
     /// Local hit test (point relative to the element's origin).
     pub fn hit_test(&self, v: ViewId, e: usize, x: f64, y: f64) -> bool {
         let inside = x >= 0.0 && y >= 0.0 && x < f64::from(self.width(v, e)) && y < f64::from(self.height(v, e));
@@ -874,12 +882,7 @@ impl Skin {
             Kind::CustomSlider => self.custom_slider_value(v, e, x, y).is_some(),
             // Text that does nothing with the mouse lets clicks through: Blue Crush's title box
             // overlaps its close button.
-            Kind::Text => {
-                self.tooltip(v, e).is_some()
-                    || ["onclick", "onmousedown", "onmouseup", "ondblclick", "onmouseover", "onmouseout", "onmousemove"]
-                        .iter()
-                        .any(|h| self.has_handler(v, e, h))
-            }
+            Kind::Text => self.uses_mouse(v, e),
             Kind::View | Kind::Subview => {
                 if !self.mask_allows(v, e, x, y) {
                     return false;
@@ -892,7 +895,7 @@ impl Skin {
                 // clicks pass.
                 match bg {
                     Some(bg) if !has_color => self.background_alpha(v, e, &bg, x, y) > 0,
-                    None if !has_color => e == 0 || self.interactive(v, e),
+                    None if !has_color => e == 0 || self.uses_mouse(v, e),
                     _ => true,
                 }
             }
