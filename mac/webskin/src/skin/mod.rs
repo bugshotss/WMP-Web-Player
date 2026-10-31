@@ -549,7 +549,7 @@ impl Shared {
     }
 
     /// Keeps a script error unless the same one is already kept, and says whether it was new.
-    pub fn keep_error(&self, e: String) -> bool {
+    pub(crate) fn keep_error(&self, e: String) -> bool {
         let mut errors = self.errors.borrow_mut();
         let new = !errors.contains(&e);
         if new {
