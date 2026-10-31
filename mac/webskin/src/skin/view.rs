@@ -1232,8 +1232,9 @@ pub fn build(shared: &Rc<Shared>, node: &WmsNode) -> ViewId {
     });
     let script = shared.register_script(v, ScriptHost::new(shared.runtime(), label, Rc::downgrade(shared)));
     let errors = |shared: &Shared, r: Result<(), String>| {
-        if let Err(e) = r {
-            shared.errors.borrow_mut().push(e);
+        if let Err(e) = r
+            && shared.keep_error(e)
+        {
             shared.with(|s| s.view_mut(v).error_count += 1);
         }
     };

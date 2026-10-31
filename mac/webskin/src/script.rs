@@ -7,7 +7,8 @@ use regex::Regex;
 use rquickjs::context::EvalOptions;
 use rquickjs::function::Rest;
 use rquickjs::{Context, Ctx, Function, Object, Persistent, Runtime};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::{Rc, Weak};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -163,6 +164,8 @@ fn sloppy() -> EvalOptions {
 pub struct ScriptHost {
     pub ctx: Context,
     label: String,
+    /// Errors already logged: a handler that fails on every position change logs once.
+    logged: RefCell<HashSet<String>>,
 }
 
 impl ScriptHost {
@@ -181,7 +184,7 @@ impl ScriptHost {
     pub fn new(rt: &Runtime, label: String, shared: Weak<Shared>) -> Self {
         let ctx = Context::full(rt).expect("JavaScript context");
         ctx.with(|ctx| install(&ctx, shared));
-        Self { ctx, label }
+        Self { ctx, label, logged: RefCell::default() }
     }
 
     fn report(&self, ctx: &Ctx<'_>, place: &str, err: rquickjs::Error) -> String {
@@ -199,7 +202,9 @@ impl ScriptHost {
             other => other.to_string(),
         };
         let line = format!("[{}] script error in {place}: {}", self.label, msg.trim());
-        crate::log(&line);
+        if self.logged.borrow_mut().insert(line.clone()) {
+            crate::log(&line);
+        }
         line
     }
 

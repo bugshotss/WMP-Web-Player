@@ -548,14 +548,23 @@ impl Shared {
         }
     }
 
+    /// Keeps a script error unless the same one is already kept, and says whether it was new.
+    pub fn keep_error(&self, e: String) -> bool {
+        let mut errors = self.errors.borrow_mut();
+        let new = !errors.contains(&e);
+        if new {
+            errors.push(e);
+        }
+        new
+    }
+
     fn record_error(&self, view: ViewId, err: Option<String>) {
-        if let Some(e) = err {
-            self.errors.borrow_mut().push(e);
-            if let Ok(mut s) = self.skin.try_borrow_mut()
-                && let Some(Some(v)) = s.views.get_mut(view)
-            {
-                v.error_count += 1;
-            }
+        if let Some(e) = err
+            && self.keep_error(e)
+            && let Ok(mut s) = self.skin.try_borrow_mut()
+            && let Some(Some(v)) = s.views.get_mut(view)
+        {
+            v.error_count += 1;
         }
     }
 
@@ -1349,6 +1358,23 @@ mod tests {
     }
 
     /// Catwoman's time digits sit in a subview given only a position.
+    #[test]
+    fn a_handler_failing_on_every_tick_is_kept_once() {
+        let dir = temp_dir("repeat-error");
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="4" height="4" timerInterval="100" onTimer="missing.value = 1;"/></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        shared.open_main_view();
+        let start = Instant::now();
+        for step in 1..=5 {
+            shared.tick(start + std::time::Duration::from_millis(step * 150));
+        }
+        assert_eq!(shared.errors.borrow().len(), 1, "{:?}", shared.errors.borrow());
+    }
+
     #[test]
     fn a_subview_without_size_or_picture_holds_its_children() {
         let dir = temp_dir("auto-size");
