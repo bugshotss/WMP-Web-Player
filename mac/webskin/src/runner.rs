@@ -59,7 +59,7 @@ struct Window {
 }
 
 /// A song playing, as skins are used and as their authors took their preview screenshots.
-struct Playing;
+pub(crate) struct Playing;
 
 impl MediaSource for Playing {
     fn snapshot(&self) -> MediaSnapshot {

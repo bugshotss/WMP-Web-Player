@@ -875,10 +875,10 @@ mod tests {
 
     impl MediaSource for Recorder {
         fn snapshot(&self) -> MediaSnapshot {
-            MediaSnapshot { title: "Glue".into(), source_app: "Spotify".into(), status: MediaStatus::Paused, duration: 269.0, ..Default::default() }
+            MediaSnapshot { status: MediaStatus::Paused, ..crate::runner::Playing.snapshot() }
         }
         fn position(&self) -> f64 {
-            40.0
+            crate::runner::Playing.position()
         }
         fn artwork(&self) -> Option<Rc<Artwork>> {
             None
