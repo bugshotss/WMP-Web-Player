@@ -115,9 +115,9 @@ impl View {
         });
     }
 
-    /// An animated GIF needs a redraw in `ms` milliseconds.
-    pub fn request_frame(&self, ms: f64) {
-        let due = Instant::now() + Duration::from_secs_f64(ms.max(15.0) / 1000.0);
+    /// An animated GIF needs a redraw `ms` milliseconds after `now`.
+    pub fn request_frame(&self, now: Instant, ms: f64) {
+        let due = now + Duration::from_secs_f64(ms.max(15.0) / 1000.0);
         if self.frame_due.get().is_none_or(|d| due < d) {
             self.frame_due.set(Some(due));
         }
@@ -440,7 +440,7 @@ impl Skin {
             self.host_call(move |h| h.view_changed(v));
         }
         if e == 0 && prop == "timerinterval" {
-            self.restart_timer(v, Instant::now());
+            self.restart_timer(v, self.now);
         }
         if matches!(prop, "visible" | "width") {
             self.update_all_scrolling(v);
@@ -514,7 +514,7 @@ impl Skin {
         let want = self.text_scrolling(v, e);
         let has = self.view(v).scrollers.contains_key(&e);
         if want && !has {
-            let due = Instant::now() + Duration::from_millis(self.get_int(v, e, "scrollingdelay").max(15) as u64);
+            let due = self.now + Duration::from_millis(self.get_int(v, e, "scrollingdelay").max(15) as u64);
             self.view_mut(v).scrollers.insert(e, due);
         } else if !want && has {
             self.view_mut(v).scrollers.remove(&e);
@@ -522,9 +522,10 @@ impl Skin {
     }
 
     fn animate(&mut self, v: ViewId, e: usize, kind: AnimKind, ms: f64) {
+        let start = self.now;
         let view = self.view_mut(v);
         view.anims.retain(|a| !(a.element == e && std::mem::discriminant(&a.kind) == std::mem::discriminant(&kind)));
-        view.anims.push(Anim { element: e, kind, ms, start: Instant::now() });
+        view.anims.push(Anim { element: e, kind, ms, start });
     }
 
     pub fn move_to(&mut self, v: ViewId, e: usize, x: f64, y: f64, ms: f64) {

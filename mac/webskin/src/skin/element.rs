@@ -704,11 +704,10 @@ impl Skin {
         if !bmp.is_animated() {
             return bmp.source();
         }
-        let now = Instant::now();
-        let start = *self.el(v, e).anim_start.borrow_mut().entry(key.to_string()).or_insert(now);
-        let (frame, next) = bmp.frame_at(now.duration_since(start).as_secs_f64() * 1000.0);
+        let start = *self.el(v, e).anim_start.borrow_mut().entry(key.to_string()).or_insert(self.now);
+        let (frame, next) = bmp.frame_at(self.now.duration_since(start).as_secs_f64() * 1000.0);
         if let Some(ms) = next {
-            self.view(v).request_frame(ms);
+            self.view(v).request_frame(self.now, ms);
         }
         frame
     }

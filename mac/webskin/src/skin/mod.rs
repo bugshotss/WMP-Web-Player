@@ -152,6 +152,9 @@ pub struct Skin {
     screen: (f64, f64),
     /// The track as the Album Art visualization shows it.
     vis_context: VisContext,
+    /// The time of the last tick: timers, animations and animated GIFs all run on it, so a
+    /// drawing and a hit test made between ticks agree.
+    now: Instant,
 }
 
 impl Skin {
@@ -469,6 +472,7 @@ impl Shared {
             work_area: host.work_area(),
             screen: host.screen_size(),
             vis_context: VisContext::default(),
+            now: Instant::now(),
         };
         let shared = Rc::new(Shared {
             skin: RefCell::new(skin),
@@ -636,6 +640,7 @@ impl Shared {
             return;
         }
         self.with(|s| {
+            s.now = now;
             let changes = s.player.tick(now);
             s.apply_player_changes(changes);
             let views: Vec<ViewId> = s.open_views().collect();
@@ -723,7 +728,7 @@ impl Shared {
             s.place_view(v, at);
             s.view_mut(v).open = true;
             s.host_call(move |h| h.view_opened(v));
-            s.restart_timer(v, Instant::now());
+            s.restart_timer(v, s.now);
             s.update_all_scrolling(v);
         });
         self.with(|s| s.fire(v, 0, "onload", vec![]));
