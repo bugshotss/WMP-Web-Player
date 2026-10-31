@@ -272,6 +272,9 @@ impl Canvas {
     /// Clears every opaque pixel whose colour is one of `keys` (a VIEW's clippingColor and
     /// transparencyColor cut the composed window, whichever element drew them).
     pub fn key_out(&mut self, keys: &[u32]) {
+        if keys.is_empty() {
+            return;
+        }
         for p in self.pixmap.pixels_mut() {
             if p.alpha() == 255 {
                 let rgb = (u32::from(p.red()) << 16) | (u32::from(p.green()) << 8) | u32::from(p.blue());
