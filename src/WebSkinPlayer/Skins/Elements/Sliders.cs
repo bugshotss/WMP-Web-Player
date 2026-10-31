@@ -312,7 +312,7 @@ public sealed class CustomSliderElement : SkinElement
         int rgb = map.Rgb((int)local.X, (int)local.Y);
         if (rgb < 0) return false;
         int? key = SkinImages.ParseColor(GetString("transparencycolor"));
-        if (key.HasValue && rgb == key.Value) return false;
+        if (key is int k && SkinImages.MatchesKey(rgb, k)) return false;
         int gray = ((rgb >> 16) & 255) * 30 / 100 + ((rgb >> 8) & 255) * 59 / 100 + (rgb & 255) * 11 / 100;
         value = GetNumber("min") + gray / 255.0 * (GetNumber("max") - GetNumber("min"));
         return true;

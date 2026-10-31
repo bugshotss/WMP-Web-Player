@@ -640,7 +640,8 @@ public sealed class SkinView : SubviewElement
         {
             int c = px[i];
             int a = (c >>> 24) & 255, rgb = c & 0xFFFFFF, hole = holes?[i] ?? 0;
-            bool keyed = a == 255 && (rgb == clip || rgb == trans || (hole != 0 && rgb == (hole & 0xFFFFFF)));
+            bool keyed = a == 255 && ((clip is int ck && SkinImages.MatchesKey(rgb, ck)) || (trans is int tk && SkinImages.MatchesKey(rgb, tk)) ||
+                (hole != 0 && SkinImages.MatchesKey(rgb, hole & 0xFFFFFF)));
             px[i] = keyed ? 0 : unchecked((int)0xFF000000);
             any |= keyed;
         }
@@ -715,7 +716,7 @@ public sealed class SkinView : SubviewElement
             // What is drawn under the open pixels only matters where the final window shows the key
             // or an earlier hole could be replaced, so most keyed subviews need no extra render.
             bool open = looks.Any(l => l.Item2 == Backdrop.Open);
-            bool matters = open && looks.Any(l => holes?[l.i] is > 0 || ((final[l.i] >>> 24) == 255 && (final[l.i] & 0xFFFFFF) == key));
+            bool matters = open && key is int openKey && looks.Any(l => holes?[l.i] is > 0 || ((final[l.i] >>> 24) == 255 && SkinImages.MatchesKey(final[l.i] & 0xFFFFFF, openKey)));
             int[]? under = matters ? RenderPixels(area, viewMask, new DrawPass { StopAfter = opener }) : null;
             foreach (var (i, look) in looks)
             {

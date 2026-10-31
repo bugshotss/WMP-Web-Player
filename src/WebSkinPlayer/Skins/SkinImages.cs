@@ -69,7 +69,7 @@ public sealed class SkinBitmap
     {
         if (_shapes.TryGetValue(key, out var shape)) return shape;
         var px = new int[Original.Length];
-        for (int i = 0; i < px.Length; i++) px[i] = (Original[i] & 0xFFFFFF) == key ? 0 : unchecked((int)0xFF000000);
+        for (int i = 0; i < px.Length; i++) px[i] = SkinImages.MatchesKey(Original[i] & 0xFFFFFF, key) ? 0 : unchecked((int)0xFF000000);
         return _shapes[key] = new SkinBitmap(Width, Height, px, px);
     }
 
@@ -90,6 +90,24 @@ public sealed class SkinImages
     readonly Dictionary<string, SkinBitmap?> _variants = new(StringComparer.OrdinalIgnoreCase);
 
     public SkinImages(SkinPackage pkg) => _pkg = pkg;
+
+    /// <summary>
+    /// Whether <paramref name="rgb"/> is the key colour <paramref name="key"/>. The key's 16-bit forms
+    /// (5-5-5 and 5-6-5) match too: bitmaps saved from a 16-bit desktop hold those (YIL Online Music
+    /// Awards' speakers are #639CFF for the key #6699FF).
+    /// </summary>
+    public static bool MatchesKey(int rgb, int key) => rgb == key || rgb == SixteenBit(key, 5) || rgb == SixteenBit(key, 6);
+
+    /// <summary><paramref name="rgb"/> with each channel cut to 5 bits (green to <paramref name="greenBits"/>) and widened back to 8.</summary>
+    static int SixteenBit(int rgb, int greenBits)
+    {
+        int Channel(int shift, int bits)
+        {
+            int v = ((rgb >> shift) & 255) >> (8 - bits);
+            return ((v << (8 - bits)) | (v >> (2 * bits - 8))) << shift;
+        }
+        return Channel(16, 5) | Channel(8, greenBits) | Channel(0, 5);
+    }
 
     public static int? ParseColor(string? s)
     {
@@ -289,7 +307,7 @@ public sealed class SkinImages
                 int c = src[i];
                 int rgb = c & 0xFFFFFF;
                 int a = (c >>> 24) & 255;
-                if ((keyColor.HasValue && rgb == keyColor.Value) || (secondKey.HasValue && rgb == secondKey.Value)) { outPx[i] = 0; continue; }
+                if ((keyColor is int k1 && MatchesKey(rgb, k1)) || (secondKey is int k2 && MatchesKey(rgb, k2))) { outPx[i] = 0; continue; }
                 if (tint) rgb = Tint(rgb, hueShift, saturation);
                 int r = (rgb >> 16) & 255, g = (rgb >> 8) & 255, b = rgb & 255;
                 if (a < 255) { r = r * a / 255; g = g * a / 255; b = b * a / 255; }

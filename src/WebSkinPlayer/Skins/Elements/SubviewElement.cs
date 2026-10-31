@@ -103,7 +103,7 @@ public class SubviewElement : SkinElement
         {
             int x = (int)Math.Floor(stretched ? local.X * sx : local.X), y = (int)Math.Floor(stretched ? local.Y * sy : local.Y);
             if (!stretched && tiled) { x = ((x % bg.Width) + bg.Width) % bg.Width; y = ((y % bg.Height) + bg.Height) % bg.Height; }
-            if (key != null && bg.Rgb(x, y) == key) return Backdrop.Open;
+            if (key is int k && SkinImages.MatchesKey(bg.Rgb(x, y), k)) return Backdrop.Open;
             return bg.Alpha(x, y) > 0 ? Backdrop.Covered : Backdrop.Outside;
         };
     }
