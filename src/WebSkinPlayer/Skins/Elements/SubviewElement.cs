@@ -27,9 +27,13 @@ public class SubviewElement : SkinElement
             GetString("clippingimage").Length == 0 && (this is not SkinView || GetBool("titlebar")) ? SkinImages.ParseColor(GetString("clippingcolor")) : null);
 
     // With no picture a subview holds its children, as WMP showed them: Catwoman's time digits sit in
-    // a subview given only a position. A VIEW with no picture has no size of its own.
-    public override int NaturalWidth => Background?.Width ?? (this is SkinView ? 0 : Children.Select(c => c.Left + c.Width).Append(0).Max());
-    public override int NaturalHeight => Background?.Height ?? (this is SkinView ? 0 : Children.Select(c => c.Top + c.Height).Append(0).Max());
+    // a subview given only a position. A text sized by its words adds nothing, so the string tables
+    // many skins keep in such a subview (WoW, Disney) stay hidden. A VIEW with no picture has no size
+    // of its own.
+    public override int NaturalWidth => Background?.Width ?? (this is SkinView ? 0 : SizingChildren.Select(c => c.Left + c.Width).Append(0).Max());
+    public override int NaturalHeight => Background?.Height ?? (this is SkinView ? 0 : SizingChildren.Select(c => c.Top + c.Height).Append(0).Max());
+
+    IEnumerable<SkinElement> SizingChildren => Children.Where(c => c is not TextElement || c.HasValue("width"));
 
     protected override string PrimaryImage => GetString("backgroundimage");
     public override bool MaskTiled => GetBool("backgroundtiled") && GetString("clippingimage").Length == 0;
