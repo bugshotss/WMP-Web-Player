@@ -578,7 +578,10 @@ public sealed class SkinView : SubviewElement
     // WMP keyed the composed window (like a layered window colour key). A VIEW's clippingColor and
     // transparencyColor cut every pixel of that colour, whichever element drew it. A SUBVIEW's
     // transparencyColor cut only its holes, so a button or slider painted in that colour over a
-    // hole was cut too (World of Warcraft's sliders).
+    // hole was cut too (World of Warcraft's sliders). WMP also filled a frameless window's empty
+    // background with magenta and keyed it out, so magenta vanished wherever it was drawn (WWC's
+    // intro over its pipes).
+    const int Magenta = 0xFF00FF;
     ImageBrush? _compositeMask;
     bool _maskDirty = true;
     DateTime _maskBuilt;
@@ -590,10 +593,7 @@ public sealed class SkinView : SubviewElement
 
     bool KeysWindow { get { var (c, t) = ViewKeys; return c != null || t != null; } }
 
-    bool HasKeyedSubview => _all.Any(e => e is SubviewElement s && s.IsEffectivelyVisible &&
-        SkinImages.ParseColor(s.GetString("transparencycolor")) != null && s.GetString("backgroundimage").Length > 0);
-
-    bool UsesCompositeMask => !GetBool("titlebar") && Width > 0 && Height > 0 && (KeysWindow || HasKeyedSubview);
+    bool UsesCompositeMask => !GetBool("titlebar") && Width > 0 && Height > 0;
 
     public void RenderTree(DrawingContext dc)
     {
@@ -642,7 +642,7 @@ public sealed class SkinView : SubviewElement
             int c = px[i];
             int a = (c >>> 24) & 255, rgb = c & 0xFFFFFF, hole = holes?[i] ?? 0;
             bool keyed = a == 255 && ((clip is int ck && SkinImages.MatchesKey(rgb, ck)) || (trans is int tk && SkinImages.MatchesKey(rgb, tk)) ||
-                (hole != 0 && SkinImages.MatchesKey(rgb, hole & 0xFFFFFF)));
+                (hole != 0 && SkinImages.MatchesKey(rgb, hole & 0xFFFFFF)) || SkinImages.MatchesKey(rgb, Magenta));
             px[i] = keyed ? 0 : unchecked((int)0xFF000000);
             any |= keyed;
         }
