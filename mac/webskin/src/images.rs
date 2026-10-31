@@ -358,6 +358,15 @@ fn decode_gif(bytes: &[u8]) -> Option<Decoded> {
             canvas = p;
         }
     }
+    // A finite animation whose last frame alone asks to be cleared ends cleared: QuickSilver's
+    // shutter opens onto the display under it. When every frame asks, that was only how the GIF
+    // was saved, and the last frame stays (Xbox Live's buttons, in its preview).
+    let last = raw[count - 1].dispose;
+    let clears = matches!(last, gif::DisposalMethod::Background | gif::DisposalMethod::Previous);
+    if loops > 0 && clears && raw.iter().any(|f| f.dispose != last) {
+        frames.push(Rc::new(canvas));
+        delays.push(0);
+    }
     Some(Decoded { width: w, height: h, frames, delays, loops })
 }
 
@@ -616,6 +625,31 @@ mod tests {
         image::DynamicImage::ImageRgb8(img).write_to(&mut std::io::Cursor::new(&mut data), image::ImageFormat::Bmp).unwrap();
         let d = decode_image(&data).unwrap();
         assert_eq!(*d.frames[0], vec![0xFFFF00FF, 0xFF010203]);
+    }
+
+    fn played_once(disposals: [gif::DisposalMethod; 2]) -> Decoded {
+        let mut data = Vec::new();
+        let mut gif = gif::Encoder::new(&mut data, 1, 1, &[0, 0, 0, 90, 90, 90]).unwrap();
+        for dispose in disposals {
+            let mut frame = gif::Frame::from_indexed_pixels(1, 1, vec![1], Some(0));
+            frame.delay = 10;
+            frame.dispose = dispose;
+            gif.write_frame(&frame).unwrap();
+        }
+        drop(gif);
+        decode_image(&data).unwrap()
+    }
+
+    #[test]
+    fn a_finite_animation_clears_when_only_its_last_frame_asks() {
+        use gif::DisposalMethod::{Background, Keep};
+        let cleared = played_once([Keep, Background]);
+        assert_eq!(cleared.loops, 1);
+        assert_eq!(**cleared.frames.last().unwrap(), vec![0], "cleared once played");
+        assert_eq!(*cleared.delays.last().unwrap(), 0);
+        let kept = played_once([Background, Background]);
+        assert_eq!(kept.frames.len(), 2);
+        assert_ne!(**kept.frames.last().unwrap(), vec![0], "every frame asked: the last one stays");
     }
 
     #[test]
