@@ -151,6 +151,7 @@ Enumerator.prototype.moveNext = function () { this._i++; };
 Enumerator.prototype.moveFirst = function () { this._i = 0; };
 function ActiveXObject(n) { throw new Error('ActiveXObject is not available: ' + n); }
 function GetObject() { return null; }
+function __assignToCall() { throw new ReferenceError('Cannot assign to a function result'); }
 "#;
 
 fn sloppy() -> EvalOptions {
@@ -486,11 +487,19 @@ pub fn prepare(code: &str) -> String {
     static EVENT_FUNCTION: OnceLock<Regex> = OnceLock::new();
     static PROPERTY_CALL: OnceLock<Regex> = OnceLock::new();
     static INDEXED_PUT: OnceLock<Regex> = OnceLock::new();
+    static CALL_ASSIGNMENT: OnceLock<Regex> = OnceLock::new();
     let mut code = code.to_string();
     if code.contains("gainLevels") {
         // JScript assigned COM indexed properties: "eq.gainLevels(band) = value".
         let re = INDEXED_PUT.get_or_init(|| Regex::new(r"\.gainLevels\s*\(([^()]*)\)\s*=([^=][^;\r\n]*)").expect("regex"));
         code = re.replace_all(&code, ".gainLevels($1, $2)").into_owned();
+    }
+    if code.contains(")") {
+        // JScript compiled any other assignment to a call ("theme.savePreference('x') = 1") and
+        // threw only when it ran; a standard engine rejects the whole file.
+        let re =
+            CALL_ASSIGNMENT.get_or_init(|| Regex::new(r"([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\([^()\r\n]*\))\s*=([^=][^;\r\n]*)").expect("regex"));
+        code = re.replace_all(&code, "($1, $2, __assignToCall())").into_owned();
     }
     if code.contains("::") {
         // JScript's "function obj::event(...)" event-sink syntax.
@@ -544,6 +553,8 @@ mod tests {
         assert_eq!(strip_prefix(" JScript: a()"), "a()");
         assert_eq!(prepare("eq.gainLevels(band) = value;"), "eq.gainLevels(band,  value);");
         assert_eq!(prepare("x = eq.gainLevels(2) == 3;"), "x = eq.gainLevels(2) == 3;");
+        assert_eq!(prepare("theme.savePreference('a')='--';"), "(theme.savePreference('a'), '--', __assignToCall());");
+        assert_eq!(prepare("if (f(1) == 2 || g(3) >= 4) x = h(5);"), "if (f(1) == 2 || g(3) >= 4) x = h(5);");
     }
 
     #[test]
