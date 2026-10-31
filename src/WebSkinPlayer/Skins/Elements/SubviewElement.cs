@@ -52,20 +52,30 @@ public class SubviewElement : SkinElement
         return GetBool("backgroundtiled") || GetBool("resizebackgroundimage") || bg.Alpha((int)local.X, (int)local.Y) > 0;
     }
 
+    public int? BackgroundColor
+    {
+        get
+        {
+            int? color = SkinImages.ParseColor(GetString("backgroundcolor"));
+            if (color == null && Values.TryGetValue("backgoundcolor", out var typo)) color = SkinImages.ParseColor(ToStr(typo));
+            return color;
+        }
+    }
+
     public override void RenderBackdrop(DrawingContext dc, Rect b)
     {
-        int? color = SkinImages.ParseColor(GetString("backgroundcolor"));
-        if (color == null && Values.TryGetValue("backgoundcolor", out var typo)) color = SkinImages.ParseColor(ToStr(typo));
-        if (color != null)
+        if (BackgroundColor is int color)
             dc.DrawRectangle(new SolidColorBrush(Color.FromRgb((byte)(color >> 16), (byte)(color >> 8), (byte)color)), null, b);
     }
+
+    bool Stretched => GetBool("resizebackgroundimage") || GetBool("resizeimages") || SkinImages.IsDynamic(GetString("backgroundimage"));
 
     public override void Render(DrawingContext dc, Rect b)
     {
         var bg = Background;
         if (bg == null) return;
         var src = FrameOf(bg, GetString("backgroundimage"));
-        if (GetBool("resizebackgroundimage") || GetBool("resizeimages") || SkinImages.IsDynamic(GetString("backgroundimage")))
+        if (Stretched)
             dc.DrawImage(src, b);
         else if (GetBool("backgroundtiled"))
         {
@@ -76,4 +86,35 @@ public class SubviewElement : SkinElement
         else
             dc.DrawImage(src, new Rect(b.X, b.Y, bg.Width, bg.Height));
     }
+
+    /// <summary>
+    /// What the background image shows at each point of this subview, looked up as <see cref="Render"/>
+    /// draws it (stretched, tiled or plain), or null when it has no image.
+    /// </summary>
+    public Func<Point, Backdrop>? BackdropMap()
+    {
+        var bg = Background;
+        if (bg == null || Width <= 0 || Height <= 0) return null;
+        // WMP's dynamic images (album art) are not the skin's own pixels, so they never match its key.
+        int? key = SkinImages.IsDynamic(GetString("backgroundimage")) ? null : SkinImages.ParseColor(GetString("transparencycolor"));
+        bool stretched = Stretched, tiled = GetBool("backgroundtiled");
+        double sx = (double)bg.Width / Width, sy = (double)bg.Height / Height;
+        return local =>
+        {
+            int x = (int)Math.Floor(stretched ? local.X * sx : local.X), y = (int)Math.Floor(stretched ? local.Y * sy : local.Y);
+            if (!stretched && tiled) { x = ((x % bg.Width) + bg.Width) % bg.Width; y = ((y % bg.Height) + bg.Height) % bg.Height; }
+            if (key != null && bg.Rgb(x, y) == key) return Backdrop.Open;
+            return bg.Alpha(x, y) > 0 ? Backdrop.Covered : Backdrop.Outside;
+        };
+    }
+}
+
+/// <summary>A subview's background at one pixel.</summary>
+public enum Backdrop
+{
+    /// <summary>Its transparencyColor: see-through.</summary>
+    Open,
+    /// <summary>A visible pixel.</summary>
+    Covered,
+    Outside,
 }

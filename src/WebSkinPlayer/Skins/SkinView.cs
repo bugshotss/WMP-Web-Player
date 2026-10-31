@@ -575,8 +575,10 @@ public sealed class SkinView : SubviewElement
 
     // ---- rendering ------------------------------------------------------------------------
 
-    // A VIEW's clippingColor / transparencyColor keys the composed window (like a layered
-    // window colour key): any pixel of that colour disappears, whichever element drew it.
+    // WMP keyed the composed window (like a layered window colour key). A VIEW's clippingColor and
+    // transparencyColor cut every pixel of that colour, whichever element drew it. A SUBVIEW's
+    // transparencyColor cut only its holes, so a button or slider painted in that colour over a
+    // hole was cut too (World of Warcraft's sliders).
     ImageBrush? _compositeMask;
     bool _maskDirty = true;
     DateTime _maskBuilt;
@@ -586,32 +588,35 @@ public sealed class SkinView : SubviewElement
         (GetString("clippingimage").Length == 0 ? SkinImages.ParseColor(GetString("clippingcolor")) : null,
          SkinImages.ParseColor(GetString("transparencycolor")));
 
-    bool UsesCompositeKey
-    {
-        get { var (c, t) = ViewKeys; return (c != null || t != null) && !GetBool("titlebar") && Width > 0 && Height > 0; }
-    }
+    bool KeysWindow { get { var (c, t) = ViewKeys; return c != null || t != null; } }
+
+    bool HasKeyedSubview => _all.Any(e => e is SubviewElement s && s.IsEffectivelyVisible &&
+        SkinImages.ParseColor(s.GetString("transparencycolor")) != null && s.GetString("backgroundimage").Length > 0);
+
+    bool UsesCompositeMask => !GetBool("titlebar") && Width > 0 && Height > 0 && (KeysWindow || HasKeyedSubview);
 
     public void RenderTree(DrawingContext dc)
     {
-        if (UsesCompositeKey)
+        bool viewMask = !KeysWindow;
+        if (UsesCompositeMask)
         {
-            EnsureCompositeMask();
+            EnsureCompositeMask(viewMask);
             if (_compositeMask != null)
             {
                 dc.PushOpacityMask(_compositeMask);
-                RenderElement(dc, this, viewMask: false);
+                RenderElement(dc, this, viewMask);
                 dc.Pop();
                 return;
             }
         }
-        RenderElement(dc, this);
+        RenderElement(dc, this, viewMask);
     }
 
-    void EnsureCompositeMask()
+    void EnsureCompositeMask(bool viewMask)
     {
-        if (!_maskDirty && _compositeMask != null) return;
+        if (!_maskDirty) return;
         // Rebuilding means a software render of the whole view; cap it at ~10 per second.
-        if (_compositeMask != null && DateTime.UtcNow - _maskBuilt < TimeSpan.FromMilliseconds(100))
+        if (DateTime.UtcNow - _maskBuilt < TimeSpan.FromMilliseconds(100))
         {
             if (_maskTimer == null)
             {
@@ -624,22 +629,22 @@ public sealed class SkinView : SubviewElement
         _maskDirty = false;
         _maskBuilt = DateTime.UtcNow;
         int w = Math.Min(4000, Width), h = Math.Min(4000, Height);
-        var dv = new DrawingVisual();
-        using (var mdc = dv.RenderOpen()) RenderElement(mdc, this, viewMask: false);
-        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
-        rtb.Render(dv);
-        var px = new int[w * h];
-        rtb.CopyPixels(px, w * 4, 0);
+        var drawn = new DrawPass();
+        var px = RenderPixels(new Int32Rect(0, 0, w, h), viewMask, drawn);
+        var holes = FindHoles(drawn, px, w, h, viewMask);
         var (clip, trans) = ViewKeys;
         // Only key-coloured pixels are cut; everything else stays unmasked so content that
         // changes between rebuilds (GIF frames, visualizers) is never hidden by a stale mask.
+        bool any = false;
         for (int i = 0; i < px.Length; i++)
         {
             int c = px[i];
-            int a = (c >>> 24) & 255, rgb = c & 0xFFFFFF;
-            bool keyed = a == 255 && ((clip.HasValue && rgb == clip.Value) || (trans.HasValue && rgb == trans.Value));
+            int a = (c >>> 24) & 255, rgb = c & 0xFFFFFF, hole = holes?[i] ?? 0;
+            bool keyed = a == 255 && (rgb == clip || rgb == trans || (hole != 0 && rgb == (hole & 0xFFFFFF)));
             px[i] = keyed ? 0 : unchecked((int)0xFF000000);
+            any |= keyed;
         }
+        if (!any) { _compositeMask = null; return; }
         var mask = BitmapSource.Create(w, h, 96, 96, PixelFormats.Pbgra32, null, px, w * 4);
         mask.Freeze();
         var brush = new ImageBrush(mask) { ViewportUnits = BrushMappingMode.Absolute, Viewport = new Rect(0, 0, w, h), Stretch = Stretch.Fill };
@@ -647,10 +652,88 @@ public sealed class SkinView : SubviewElement
         _compositeMask = brush;
     }
 
-    void RenderElement(DrawingContext dc, SkinElement e, bool viewMask = true)
+    /// <summary>A software render of the view: the elements in the order they drew, and where to stop.</summary>
+    sealed class DrawPass
+    {
+        public SkinElement? StopAfter;
+        public bool Stopped;
+        public readonly List<(SkinElement El, bool Backdrop)> Steps = new();
+    }
+
+    int[] RenderPixels(Int32Rect area, bool viewMask, DrawPass pass)
+    {
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            dc.PushTransform(new TranslateTransform(-area.X, -area.Y));
+            RenderElement(dc, this, viewMask, pass);
+            dc.Pop();
+        }
+        var rtb = new RenderTargetBitmap(area.Width, area.Height, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(dv);
+        var px = new int[area.Width * area.Height];
+        rtb.CopyPixels(px, area.Width * 4, 0);
+        return px;
+    }
+
+    const int HoleBit = 1 << 24;
+
+    /// <summary>
+    /// Per pixel, the transparencyColor a subview left open there with nothing under it (with
+    /// <see cref="HoleBit"/> set, so a black key counts), or 0. Replays <paramref name="drawn"/>: a
+    /// subview's image opens holes where it shows its key over nothing and fills them where it is
+    /// visible; its backgroundColor, EFFECTS and VIDEO fill them too (WMP showed visualizations and
+    /// video in windows of their own, never keyed with the skin). Null when there is none.
+    /// </summary>
+    int[]? FindHoles(DrawPass drawn, int[] final, int w, int h, bool viewMask)
+    {
+        int[]? holes = null;
+        var view = new Rect(0, 0, w, h);
+        foreach (var (el, backdrop) in drawn.Steps)
+        {
+            bool fills = backdrop ? el is SubviewElement { BackgroundColor: not null } : el is EffectsElement;
+            var opener = !backdrop && el is SubviewElement sub && sub != this ? sub : null;
+            if (!fills && opener == null) continue;
+            var bounds = el.AbsoluteBounds;
+            var shown = bounds;
+            for (var p = el.Parent; p != null; p = p.Parent) if (p.ClipsChildren) shown.Intersect(p.AbsoluteBounds);
+            shown.Intersect(view);
+            if (shown.IsEmpty) continue;
+            int x0 = (int)Math.Floor(shown.Left), y0 = (int)Math.Floor(shown.Top);
+            var area = new Int32Rect(x0, y0, (int)Math.Ceiling(shown.Right) - x0, (int)Math.Ceiling(shown.Bottom) - y0);
+            if (area.Width <= 0 || area.Height <= 0) continue;
+            IEnumerable<int> Pixels() =>
+                Enumerable.Range(area.Y, area.Height).SelectMany(y => Enumerable.Range(area.X, area.Width).Select(x => y * w + x));
+            if (opener == null)
+            {
+                if (holes != null) foreach (int i in Pixels()) holes[i] = 0;
+                continue;
+            }
+            int? key = SkinImages.ParseColor(opener.GetString("transparencycolor"));
+            if ((key == null && holes == null) || opener.BackdropMap() is not { } at) continue;
+            var looks = Pixels().Select(i => (i, at(new Point(i % w + 0.5 - bounds.X, i / w + 0.5 - bounds.Y)))).ToArray();
+            // What is drawn under the open pixels only matters where the final window shows the key
+            // or an earlier hole could be replaced, so most keyed subviews need no extra render.
+            bool open = looks.Any(l => l.Item2 == Backdrop.Open);
+            bool matters = open && looks.Any(l => holes?[l.i] is > 0 || ((final[l.i] >>> 24) == 255 && (final[l.i] & 0xFFFFFF) == key));
+            int[]? under = matters ? RenderPixels(area, viewMask, new DrawPass { StopAfter = opener }) : null;
+            foreach (var (i, look) in looks)
+            {
+                if (look == Backdrop.Open && key is int k && under != null && (under[(i / w - area.Y) * area.Width + i % w - area.X] >>> 24) == 0)
+                {
+                    holes ??= new int[w * h];
+                    holes[i] = k | HoleBit;
+                }
+                else if (look == Backdrop.Covered && holes != null) holes[i] = 0;
+            }
+        }
+        return holes;
+    }
+
+    void RenderElement(DrawingContext dc, SkinElement e, bool viewMask = true, DrawPass? pass = null)
     {
         // A VIEW is the window itself; WMP ignored visible="false" on it.
-        if (!e.Visible && e != this) return;
+        if ((!e.Visible && e != this) || pass?.Stopped == true) return;
         var b = e == this ? new Rect(0, 0, Width, Height) : e.AbsoluteBounds;
         int pushes = 0;
         double op = e.Opacity;
@@ -685,9 +768,15 @@ public sealed class SkinView : SubviewElement
         if (e.ClipsChildren) { dc.PushClip(new RectangleGeometry(b)); pushes++; }
         var (behind, above) = e.ChildrenBehindAndAbove;
         e.RenderBackdrop(dc, b);
-        foreach (var c in behind) RenderElement(dc, c);
-        e.Render(dc, b);
-        foreach (var c in above) RenderElement(dc, c);
+        pass?.Steps.Add((e, true));
+        foreach (var c in behind) RenderElement(dc, c, pass: pass);
+        if (pass?.Stopped != true)
+        {
+            e.Render(dc, b);
+            pass?.Steps.Add((e, false));
+            if (pass != null && e == pass.StopAfter) pass.Stopped = true;
+        }
+        foreach (var c in above) RenderElement(dc, c, pass: pass);
         for (int i = 0; i < pushes; i++) dc.Pop();
     }
 
