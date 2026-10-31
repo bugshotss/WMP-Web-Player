@@ -40,9 +40,10 @@ fn hosted(s: &Skin, v: ViewId) -> Vec<Rect> {
         .collect()
 }
 
-/// Opaque pixels in an element's key colour where its own picture is that colour and what lies
-/// under it is not: WMP showed what lay under it there, so the colour came from this element or
-/// one drawn over it.
+/// Opaque pixels in an element's key colour where its own picture is that colour, no background
+/// drawn later covers it, and nothing lies under it: WMP's window was see-through there, so the
+/// colour came from this element or one drawn over it. (Over something solid WMP kept it: Hard
+/// Boiled's white egg is drawn over a white-keyed mask.)
 pub fn key_colour_left(shared: &Shared, v: ViewId, c: &Canvas) -> Vec<String> {
     let shows = |canvas: &Canvas, x: i32, y: i32, k: u32| {
         let (cx, cy) = (x - canvas.origin.0 as i32, y - canvas.origin.1 as i32);
@@ -50,15 +51,19 @@ pub fn key_colour_left(shared: &Shared, v: ViewId, c: &Canvas) -> Vec<String> {
     };
     let suspects: Vec<Suspect> = shared.read(|s| {
         let hosted = hosted(s, v);
+        let surfaces = surfaces(s, v);
         (1..s.view(v).elements.len())
             .filter(|&e| s.effectively_visible(v, e))
             .filter_map(|e| {
                 let (k, own) = own_key(s, v, e)?;
+                let after = surfaces.iter().position(|&(i, stage)| i == e && stage == Stage::Image).map_or(0, |i| i + 1);
                 let hits: Vec<(i32, i32)> = pixels(on_screen(s, v, e))
                     .filter(|&(x, y)| {
-                        own(f64::from(x) + 0.5, f64::from(y) + 0.5)
+                        let (px, py) = (f64::from(x) + 0.5, f64::from(y) + 0.5);
+                        own(px, py)
                             && shows(c, x, y, k)
-                            && !hosted.iter().any(|r| r.contains(f64::from(x) + 0.5, f64::from(y) + 0.5))
+                            && !hosted.iter().any(|r| r.contains(px, py))
+                            && !surfaces[after..].iter().any(|&(i, stage)| covers(s, v, i, stage, px, py))
                     })
                     .collect();
                 (!hits.is_empty()).then_some(Suspect { element: e, key: k, pixels: hits })
@@ -72,7 +77,8 @@ pub fn key_colour_left(shared: &Shared, v: ViewId, c: &Canvas) -> Vec<String> {
         let at = order.iter().position(|&i| i == e).unwrap_or(0);
         let hide: Vec<usize> = order[at..].iter().copied().filter(|i| !ancestors.contains(i)).collect();
         let Some(below) = render_hiding(shared, v, &hide, area) else { continue };
-        let hits: Vec<(i32, i32)> = hits.into_iter().filter(|&(x, y)| !shows(&below, x, y, k)).collect();
+        let open = |x: i32, y: i32| pixel_at(&below.pixmap, x - below.origin.0 as i32, y - below.origin.1 as i32).is_none_or(|p| p.alpha() == 0);
+        let hits: Vec<(i32, i32)> = hits.into_iter().filter(|&(x, y)| open(x, y)).collect();
         if let Some(r) = extent(&hits) {
             let name = shared.read(|s| describe(s, v, e));
             found.push(format!("key colour #{k:06X} of {name} shows in {} pixels at {r}", hits.len()));
@@ -91,6 +97,47 @@ struct Suspect {
 /// An element's key colour and, for a point in the view, whether its own picture is that colour
 /// there.
 type OwnKey<'a> = (u32, Box<dyn Fn(f64, f64) -> bool + 'a>);
+
+/// What a subview draws that can cover a hole under it.
+#[derive(Clone, Copy, PartialEq)]
+enum Stage {
+    /// Its backgroundColor, under the children behind its image.
+    Fill,
+    Image,
+}
+
+/// Every element's fill and image in the order they draw (other elements draw no background).
+fn surfaces(s: &Skin, v: ViewId) -> Vec<(usize, Stage)> {
+    fn visit(s: &Skin, v: ViewId, e: usize, out: &mut Vec<(usize, Stage)>) {
+        if e != 0 && !s.visible(v, e) {
+            return;
+        }
+        out.push((e, Stage::Fill));
+        let (behind, above) = s.children_behind_and_above(v, e);
+        for &c in &behind {
+            visit(s, v, c, out);
+        }
+        out.push((e, Stage::Image));
+        for c in above {
+            visit(s, v, c, out);
+        }
+    }
+    let mut out = vec![];
+    visit(s, v, 0, &mut out);
+    out
+}
+
+/// Whether element `e`'s fill or image covers view point (x, y).
+fn covers(s: &Skin, v: ViewId, e: usize, stage: Stage, x: f64, y: f64) -> bool {
+    if !matches!(s.el(v, e).kind, Kind::View | Kind::Subview) || !on_screen(s, v, e).contains(x, y) {
+        return false;
+    }
+    let b = s.bounds(v, e);
+    match stage {
+        Stage::Fill => parse_color(&s.get_str(v, e, "backgroundcolor")).is_some(),
+        Stage::Image => s.background_covers(v, e, x - b.x, y - b.y),
+    }
+}
 
 /// The view's elements in the order they draw: a container, the children behind its image, then
 /// those above.
@@ -140,7 +187,9 @@ fn own_key<'a>(s: &'a Skin, v: ViewId, e: usize) -> Option<OwnKey<'a>> {
 
 /// Controls that show in the window but take no click at any pixel they show: something
 /// transparent to the eye lies over them, or the window is see-through there. A control another
-/// part covers (a closed drawer, an intro screen) shows nowhere and is left alone.
+/// part covers (a closed drawer, an intro screen) shows nowhere and is left alone, and so is what
+/// shows through a slider: a slider takes clicks across its whole rectangle, like a Windows
+/// trackbar.
 pub fn controls_out_of_reach(shared: &Shared, v: ViewId, c: &Canvas) -> Vec<String> {
     let controls: Vec<(usize, usize, Rect)> = shared.read(|s| {
         (1..s.view(v).elements.len())
@@ -165,6 +214,9 @@ pub fn controls_out_of_reach(shared: &Shared, v: ViewId, c: &Canvas) -> Vec<Stri
             let mut takers: HashMap<Option<usize>, usize> = HashMap::new();
             for (x, y) in pixels(area).filter(|&(x, y)| own(x, y) && differs(x, y)) {
                 let taker = s.hit_test_point(v, f64::from(x) + 0.5, f64::from(y) + 0.5);
+                if taker.is_some_and(|t| t != e && s.el(v, t).kind == Kind::Slider) {
+                    continue;
+                }
                 let opaque = pixel_at(&c.pixmap, x, y).is_some_and(|p| p.alpha() > 0);
                 if taker == Some(e) && opaque {
                     return None;
