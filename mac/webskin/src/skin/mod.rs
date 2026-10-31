@@ -4,6 +4,7 @@
 //! released: Rust code mutates the skin and queues [`Effect`]s (handlers to run), and the entry
 //! point runs them once the borrow is dropped, so a handler may freely touch the skin again.
 
+pub mod audit;
 mod element;
 mod objects;
 mod view;

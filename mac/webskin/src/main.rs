@@ -8,7 +8,7 @@ fn main() {
             std::process::exit(2);
         };
         match webskin::runner::run(&PathBuf::from(source), &PathBuf::from(out)) {
-            Ok(s) => std::process::exit(if s.failed > 0 { 1 } else { 0 }),
+            Ok(s) => std::process::exit(if s.failed + s.faults > 0 { 1 } else { 0 }),
             Err(e) => {
                 eprintln!("{e}");
                 std::process::exit(1);

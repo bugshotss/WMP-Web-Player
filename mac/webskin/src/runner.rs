@@ -1,10 +1,13 @@
 //! Headless compatibility pass: `webskin --test-skins <folder|skin> <out>` loads every skin offscreen,
 //! runs its scripts, saves a PNG of its Skin Chooser picture and of each window it opens when
-//! applied, plus its element tree, and writes report.txt.
+//! applied, plus its element tree, and writes report.txt. Each window is checked for faults a user
+//! would see, and compared with the skin's own preview screenshot when it has one.
 
-use crate::player::NoMedia;
+use crate::images::Artwork;
+use crate::player::{Command, MediaSnapshot, MediaSource, MediaStatus, NoMedia};
 use crate::render::Canvas;
 use crate::settings::Settings;
+use crate::skin::audit;
 use crate::skin::{NullHost, Shared, Skin, ViewId};
 use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -17,6 +20,8 @@ pub struct Summary {
     pub ok: usize,
     pub with_errors: usize,
     pub failed: usize,
+    /// Faults found in the saved windows.
+    pub faults: usize,
 }
 
 fn skin_files(source: &Path) -> Vec<PathBuf> {
@@ -34,34 +39,91 @@ fn skin_files(source: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Loads a skin's main view offscreen. `chooser` runs it as WMP's Skin Chooser did, without a
-/// player object; otherwise as when the skin is applied.
-/// A skin's script errors and the size of its preview picture.
-type Outcome = Result<(Vec<String>, Option<(u32, u32)>), String>;
+/// A skin's script errors, the size of its preview picture, the faults in its windows and how
+/// they compare with its preview screenshot.
+type Outcome = Result<(Vec<String>, Option<(u32, u32)>, Vec<String>, Option<String>), String>;
 
-pub(crate) fn load_offscreen(path: &Path, chooser: bool) -> Result<(Rc<Shared>, ViewId), String> {
-    let shared = Shared::load(path, Box::new(NoMedia), Settings::scratch(), Rc::new(NullHost), chooser).map_err(|e| e.0)?;
+/// Loads a skin's main view offscreen as WMP's Skin Chooser did, without a player object.
+fn load_for_chooser(path: &Path) -> Result<(Rc<Shared>, ViewId), String> {
+    let shared = Shared::load(path, Box::new(NoMedia), Settings::scratch(), Rc::new(NullHost), true).map_err(|e| e.0)?;
     let v = shared.load_main_view_offscreen();
     Ok((shared, v))
 }
 
-/// Draws every window a skin opens when applied (the Skin Chooser picture is often just an image).
-fn applied_windows(path: &Path) -> Result<Vec<(String, Canvas)>, String> {
-    let shared = Shared::load(path, Box::new(NoMedia), Settings::scratch(), Rc::new(NullHost), false).map_err(|e| e.0)?;
+/// A window a skin opens when applied, drawn, with the faults found in it.
+struct Window {
+    id: String,
+    canvas: Canvas,
+    tree: String,
+    faults: Vec<String>,
+}
+
+/// A song playing, as skins are used and as their authors took their preview screenshots.
+struct Playing;
+
+impl MediaSource for Playing {
+    fn snapshot(&self) -> MediaSnapshot {
+        MediaSnapshot {
+            title: "Glue".into(),
+            artist: "Bicep".into(),
+            album: "Bicep".into(),
+            source_app: "Spotify".into(),
+            status: MediaStatus::Playing,
+            duration: 269.0,
+            can_next: true,
+            can_previous: true,
+            can_seek: true,
+            can_shuffle: true,
+            can_repeat: true,
+            ..Default::default()
+        }
+    }
+    fn position(&self) -> f64 {
+        40.0
+    }
+    fn artwork(&self) -> Option<Rc<Artwork>> {
+        None
+    }
+    fn command(&self, _: Command) {}
+    fn seek(&self, _: f64) {}
+    fn set_shuffle(&self, _: bool) {}
+    fn set_repeat(&self, _: bool) {}
+    fn volume(&self) -> f64 {
+        0.5
+    }
+    fn set_volume(&self, _: f64) {}
+    fn mute(&self) -> bool {
+        false
+    }
+    fn set_mute(&self, _: bool) {}
+}
+
+/// Draws every window a skin opens when applied, with a song playing (the Skin Chooser picture is
+/// often just an image).
+/// Returns them with the script errors raised on the way.
+fn applied_windows(path: &Path) -> Result<(Vec<String>, Vec<Window>), String> {
+    let shared = Shared::load(path, Box::new(Playing), Settings::scratch(), Rc::new(NullHost), false).map_err(|e| e.0)?;
     shared.open_main_view();
-    // Two seconds of timers: some skins open their main window from one (World of Warcraft).
+    // Eight seconds of timers: some skins open their main window from one (World of Warcraft),
+    // and intros play out.
     let start = Instant::now();
-    for step in 1..=20 {
+    for step in 1..=80 {
         shared.tick(start + Duration::from_millis(step * 100));
     }
-    Ok(shared.read(|s| {
-        s.open_views()
-            .filter_map(|v| {
+    let views: Vec<ViewId> = shared.read(|s| s.open_views().collect());
+    let windows = views
+        .into_iter()
+        .filter_map(|v| {
+            let (id, canvas, tree) = shared.read(|s| {
                 let id = s.view(v).id.clone().filter(|id| !id.is_empty()).unwrap_or_else(|| format!("view{v}"));
-                Some((id, s.render_view(v, 1.0)?))
-            })
-            .collect()
-    }))
+                Some((id, s.render_view(v, 1.0)?, dump_tree(s, v)))
+            })?;
+            let faults = [audit::key_colour_left(&shared, v, &canvas), audit::controls_out_of_reach(&shared, v, &canvas)].concat();
+            Some(Window { id, canvas, tree, faults })
+        })
+        .collect();
+    let errors = shared.errors.borrow().clone();
+    Ok((errors, windows))
 }
 
 pub fn run(source: &Path, out: &Path) -> std::io::Result<Summary> {
@@ -72,29 +134,49 @@ pub fn run(source: &Path, out: &Path) -> std::io::Result<Summary> {
     for file in skin_files(source) {
         let name = file.file_stem().unwrap_or_default().to_string_lossy().into_owned();
         let result = catch_unwind(AssertUnwindSafe(|| -> Outcome {
-            // Script errors as when applied (player present); the picture as the Skin Chooser shows it.
-            let (applied, v) = load_offscreen(&file, false)?;
-            let errors = applied.errors.borrow().clone();
-            let tree = applied.read(|s| dump_tree(s, v));
-            std::fs::write(out.join(format!("{name}.tree.txt")), tree).map_err(|e| e.to_string())?;
-            let (preview, pv) = load_offscreen(&file, true)?;
+            let (preview, pv) = load_for_chooser(&file)?;
             let size = preview.read(|s| s.render_view(pv, 1.0)).map(|c| save_png(&trim(&c), &out.join(format!("{name}.png"))));
-            for (view, canvas) in applied_windows(&file)? {
-                save_png(&trim(&canvas), &out.join(format!("{name}.{view}.png")));
+            let screenshot = preview.read(|s| PREVIEWS.iter().find_map(|p| s.images.get_raw(p)));
+            let mut faults = vec![];
+            let mut best: Option<(audit::PreviewMatch, String)> = None;
+            let (errors, windows) = applied_windows(&file)?;
+            for w in windows {
+                let picture = trim(&w.canvas);
+                save_png(&picture, &out.join(format!("{name}.{}.png", w.id)));
+                std::fs::write(out.join(format!("{name}.{}.tree.txt", w.id)), &w.tree).map_err(|e| e.to_string())?;
+                faults.extend(w.faults.into_iter().map(|f| format!("{}: {f}", w.id)));
+                if let Some(m) = screenshot.as_ref().and_then(|p| audit::compare_preview(p, &picture))
+                    && best.as_ref().is_none_or(|(b, _)| m.score > b.score)
+                {
+                    best = Some((m, w.id));
+                }
             }
-            Ok((errors, size.flatten()))
+            let compared = best.map(|(m, id)| {
+                save_png(&m.picture, &out.join(format!("{name}.preview.png")));
+                let side = |n: Option<usize>| n.map_or_else(|| "-".to_string(), |n| n.to_string());
+                format!("{:.1}% like its preview ({id}), {} extra, {} missing", m.score * 100.0, side(m.extra), side(m.missing))
+            });
+            Ok((errors, size.flatten(), faults, compared))
         }));
         match result {
-            Ok(Ok((errors, size))) if errors.is_empty() => {
-                summary.ok += 1;
-                let (w, h) = size.unwrap_or_default();
-                let _ = writeln!(report, "OK      {name}  ({w}x{h})");
-            }
-            Ok(Ok((errors, _))) => {
-                summary.with_errors += 1;
-                let _ = writeln!(report, "ERRORS  {name}: {} script error(s)", errors.len());
-                for e in errors.iter().take(8) {
-                    let _ = writeln!(report, "          {e}");
+            Ok(Ok((errors, size, faults, compared))) => {
+                if errors.is_empty() {
+                    summary.ok += 1;
+                    let (w, h) = size.unwrap_or_default();
+                    let _ = writeln!(report, "OK      {name}  ({w}x{h})");
+                } else {
+                    summary.with_errors += 1;
+                    let _ = writeln!(report, "ERRORS  {name}: {} script error(s)", errors.len());
+                    for e in errors.iter().take(8) {
+                        let _ = writeln!(report, "          {e}");
+                    }
+                }
+                summary.faults += faults.len();
+                for f in &faults {
+                    let _ = writeln!(report, "FAULT     {f}");
+                }
+                if let Some(c) = compared {
+                    let _ = writeln!(report, "PREVIEW   {c}");
                 }
             }
             Ok(Err(e)) => {
@@ -108,11 +190,18 @@ pub fn run(source: &Path, out: &Path) -> std::io::Result<Summary> {
             }
         }
     }
-    let _ = writeln!(report, "\n{} OK, {} with script errors, {} failed", summary.ok, summary.with_errors, summary.failed);
+    let _ = writeln!(
+        report,
+        "\n{} OK, {} with script errors, {} failed, {} faults in windows",
+        summary.ok, summary.with_errors, summary.failed, summary.faults
+    );
     std::fs::write(out.join("report.txt"), &report)?;
     print!("{report}");
     Ok(summary)
 }
+
+/// Where skins keep the screenshot the Skin Chooser shows.
+const PREVIEWS: [&str; 4] = ["preview.png", "preview.jpg", "preview.bmp", "preview.gif"];
 
 fn dump_tree(s: &Skin, v: ViewId) -> String {
     let mut out = String::new();
