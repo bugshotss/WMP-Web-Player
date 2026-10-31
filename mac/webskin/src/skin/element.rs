@@ -2,7 +2,7 @@
 
 use super::{Skin, ViewId};
 use crate::images::{self, SkinBitmap, parse_color};
-use crate::render::{Backdrop, Canvas, Rect};
+use crate::render::{Backdrop, Canvas, Rect, pixel_at};
 use crate::script::JsRef;
 use crate::text::{self, Align, TextStyle};
 use crate::value::{PType, Value};
@@ -872,6 +872,14 @@ impl Skin {
             Kind::Button => self.img(v, e, "image").is_none_or(|i| i.alpha(ix, iy) > 0),
             Kind::ButtonGroup => self.group_element_at(v, e, x, y).is_some(),
             Kind::CustomSlider => self.custom_slider_value(v, e, x, y).is_some(),
+            // Text that does nothing with the mouse lets clicks through: Blue Crush's title box
+            // overlaps its close button.
+            Kind::Text => {
+                self.tooltip(v, e).is_some()
+                    || ["onclick", "onmousedown", "onmouseup", "ondblclick", "onmouseover", "onmouseout", "onmousemove"]
+                        .iter()
+                        .any(|h| self.has_handler(v, e, h))
+            }
             Kind::View | Kind::Subview => {
                 if !self.mask_allows(v, e, x, y) {
                     return false;
@@ -879,10 +887,12 @@ impl Skin {
                 // A transparent background with no colour isn't hit (clicks reach the window behind).
                 let bg = self.background(v, e);
                 let has_color = parse_color(&self.get_str(v, e, "backgroundcolor")).is_some();
+                // Nor is one with nothing to draw: skins group controls in window-sized empty
+                // subviews drawn above other controls (Constantine, Media Center), which WMP let
+                // clicks pass.
                 match bg {
-                    Some(bg) if !has_color && !self.get_bool(v, e, "backgroundtiled") && !self.get_bool(v, e, "resizebackgroundimage") => {
-                        bg.alpha(ix, iy) > 0
-                    }
+                    Some(bg) if !has_color => self.background_alpha(v, e, &bg, x, y) > 0,
+                    None if !has_color => e == 0 || self.interactive(v, e),
                     _ => true,
                 }
             }
@@ -1027,14 +1037,38 @@ impl Skin {
     /// the children behind it.
     pub fn background_covers(&self, v: ViewId, e: usize, x: f64, y: f64) -> bool {
         let Some(bg) = self.background_keyed(v, e, e == 0) else { return false };
-        if self.get_bool(v, e, "resizebackgroundimage") || self.get_bool(v, e, "resizeimages") {
-            return true;
+        self.background_alpha(v, e, &bg, x, y) > 0
+    }
+
+    /// The alpha of background `bg` at local (x, y) in the frame showing now (anime's animated
+    /// background covers its sliders only in some frames).
+    fn background_alpha(&self, v: ViewId, e: usize, bg: &SkinBitmap, x: f64, y: f64) -> u8 {
+        let (bx, by) = self.background_pixel(v, e, bg, x, y);
+        let shown = match self.el(v, e).anim_start.borrow().get(&self.get_str(v, e, "backgroundimage")) {
+            Some(start) if bg.is_animated() => bg.frame_at(self.now.duration_since(*start).as_secs_f64() * 1000.0).0,
+            _ => bg.source(),
+        };
+        pixel_at(shown, bx, by).map_or(0, |p| p.alpha())
+    }
+
+    fn background_stretched(&self, v: ViewId, e: usize) -> bool {
+        self.get_bool(v, e, "resizebackgroundimage")
+            || self.get_bool(v, e, "resizeimages")
+            || images::is_dynamic(&self.get_str(v, e, "backgroundimage"))
+    }
+
+    /// The pixel of a subview's background image `bg` drawn at its local point (x, y): stretched
+    /// over it, tiled, or once at its top-left.
+    pub fn background_pixel(&self, v: ViewId, e: usize, bg: &SkinBitmap, x: f64, y: f64) -> (i32, i32) {
+        let (w, h) = (f64::from(self.width(v, e)), f64::from(self.height(v, e)));
+        if self.background_stretched(v, e) && w > 0.0 && h > 0.0 {
+            return ((x * f64::from(bg.width) / w).floor() as i32, (y * f64::from(bg.height) / h).floor() as i32);
         }
-        let (mut ix, mut iy) = (x.floor() as i32, y.floor() as i32);
+        let (ix, iy) = (x.floor() as i32, y.floor() as i32);
         if self.get_bool(v, e, "backgroundtiled") && bg.width > 0 && bg.height > 0 {
-            (ix, iy) = (ix.rem_euclid(bg.width as i32), iy.rem_euclid(bg.height as i32));
+            return (ix.rem_euclid(bg.width as i32), iy.rem_euclid(bg.height as i32));
         }
-        bg.alpha(ix, iy) > 0
+        (ix, iy)
     }
 
     pub fn render_subview_image(&self, v: ViewId, e: usize, c: &mut Canvas, b: Rect, clip: Rect, cut_view: bool) {
@@ -1042,7 +1076,7 @@ impl Skin {
         let name = self.get_str(v, e, "backgroundimage");
         let frame = self.frame(v, e, &bg, &name);
         let (bw, bh) = (f64::from(bg.width), f64::from(bg.height));
-        if self.get_bool(v, e, "resizebackgroundimage") || self.get_bool(v, e, "resizeimages") || images::is_dynamic(&name) {
+        if self.background_stretched(v, e) {
             c.draw_image(frame, b, None, clip, 1.0);
         } else if self.get_bool(v, e, "backgroundtiled") && bw > 0.0 && bh > 0.0 {
             let mut y = b.y;
@@ -1070,18 +1104,8 @@ impl Skin {
             return;
         }
         let raw = key.and_then(|_| self.images.get_raw(&self.get_str(v, e, "backgroundimage")));
-        let (bw, bh) = (f64::from(bg.width), f64::from(bg.height));
-        let stretched = self.get_bool(v, e, "resizebackgroundimage") || self.get_bool(v, e, "resizeimages");
-        let tiled = self.get_bool(v, e, "backgroundtiled") && bg.width > 0 && bg.height > 0;
         c.mark_holes(b.intersect(&clip), |x, y| {
-            let (lx, ly) = (x - b.x, y - b.y);
-            let (ix, iy) = if stretched {
-                ((lx * bw / b.w).floor() as i32, (ly * bh / b.h).floor() as i32)
-            } else if tiled {
-                ((lx.floor() as i32).rem_euclid(bg.width as i32), (ly.floor() as i32).rem_euclid(bg.height as i32))
-            } else {
-                (lx.floor() as i32, ly.floor() as i32)
-            };
+            let (ix, iy) = self.background_pixel(v, e, bg, x - b.x, y - b.y);
             match (key, &raw) {
                 (Some(k), Some(raw)) if raw.rgb(ix, iy).is_some_and(|rgb| images::matches_key(rgb, k)) => Backdrop::Open(k),
                 _ if bg.alpha(ix, iy) > 0 => Backdrop::Covered,

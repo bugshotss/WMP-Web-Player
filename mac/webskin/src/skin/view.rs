@@ -838,7 +838,10 @@ impl Skin {
             if let Some(inner) = self.hit_in(v, &above, x, y) {
                 return Some(inner);
             }
-            let own = !self.get_bool(v, c, "passthrough") && self.hit_test(v, c, lx, ly) && self.mask_allows(v, c, lx, ly);
+            // A disabled button lets clicks through: QuickSilver covers its buttons with disabled
+            // ones as artwork.
+            let disabled_button = self.el(v, c).kind == Kind::Button && !self.enabled(v, c);
+            let own = !self.get_bool(v, c, "passthrough") && !disabled_button && self.hit_test(v, c, lx, ly) && self.mask_allows(v, c, lx, ly);
             // Its image covers the children behind it; its colour lies under them.
             if own && (behind.is_empty() || self.background_covers(v, c, lx, ly)) {
                 return Some(c);
@@ -973,8 +976,7 @@ impl Skin {
             self.fire(v, hit, "ondblclick", vec![]);
             return MouseResult::Taken;
         }
-        let interactive = self.interactive(v, hit) && (self.enabled(v, hit) || self.el(v, hit).kind != Kind::Button);
-        if !interactive {
+        if !self.interactive(v, hit) {
             if hit != 0 {
                 self.fire(v, hit, "onmousedown", vec![]);
                 if self.has_handler(v, 0, "onmousedown") {

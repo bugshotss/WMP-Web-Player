@@ -1175,4 +1175,149 @@ mod tests {
         assert_eq!(hit_frame, Some(frame), "clicks on the frame reach the frame, not the child behind it");
         assert_eq!(hit_hole, Some(behind), "clicks through the hole reach the child");
     }
+
+    /// Constantine and Media Center group their controls in window-sized subviews with nothing
+    /// to draw, placed above other controls.
+    #[test]
+    fn an_empty_subview_lets_clicks_reach_the_controls_under_it() {
+        let dir = temp_dir("empty-subview");
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="40" height="20">
+                 <BUTTON id="play" width="20" height="20" onClick="x = 1;"/>
+                 <SUBVIEW id="group" zIndex="5" width="40" height="20">
+                   <BUTTON id="stop" left="20" width="20" height="20" onClick="x = 2;"/>
+                 </SUBVIEW>
+                 <SUBVIEW id="handle" zIndex="6" top="15" width="5" height="5" onmousedown="x = 1;"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        let (play, stop, handle) = shared.read(|s| {
+            let id = |name: &str| Some(s.view(v).by_id[name]);
+            assert_eq!(s.hit_test_point(v, 5.0, 5.0), id("play"), "the empty subview above lets the click through");
+            assert_eq!(s.hit_test_point(v, 25.0, 5.0), id("stop"), "its own children still take clicks");
+            (id("play"), id("stop"), (s.hit_test_point(v, 2.0, 17.0), id("handle")))
+        });
+        assert!(play.is_some() && stop.is_some());
+        assert_eq!(handle.0, handle.1, "an empty subview with a mouse handler still takes clicks");
+    }
+
+    /// QuickSilver lays disabled buttons over its real ones as artwork.
+    #[test]
+    fn a_disabled_button_lets_clicks_reach_the_button_under_it() {
+        let dir = temp_dir("disabled-cover");
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="20" height="20">
+                 <BUTTON id="real" width="20" height="20" onClick="x = 1;"/>
+                 <BUTTON id="cover" zIndex="1" width="20" height="20" enabled="false"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        let (hit, real) = shared.read(|s| (s.hit_test_point(v, 5.0, 5.0), s.view(v).by_id["real"]));
+        assert_eq!(hit, Some(real));
+    }
+
+    /// Blue Crush's title box overlaps its close button.
+    #[test]
+    fn text_without_mouse_handlers_lets_clicks_through() {
+        let dir = temp_dir("text-over");
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="40" height="20">
+                 <BUTTON id="close" width="40" height="20" onClick="x = 1;"/>
+                 <TEXT id="title" zIndex="1" width="20" height="20" value="Glue"/>
+                 <TEXT id="link" zIndex="1" left="20" width="20" height="20" value="Bicep" onClick="x = 2;"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        shared.read(|s| {
+            let id = |name: &str| Some(s.view(v).by_id[name]);
+            assert_eq!(s.hit_test_point(v, 5.0, 5.0), id("close"));
+            assert_eq!(s.hit_test_point(v, 25.0, 5.0), id("link"), "text with a click handler takes clicks");
+        });
+    }
+
+    /// 9 Series tiles its left edge, whose see-through pixels show the playlist grip under it.
+    #[test]
+    fn a_tiled_background_lets_clicks_through_its_holes() {
+        let dir = temp_dir("tiled-holes");
+        image::RgbaImage::from_fn(2, 1, |x, _| if x == 0 { image::Rgba([255, 0, 255, 255]) } else { image::Rgba([90, 90, 90, 255]) })
+            .save(dir.join("edge.png"))
+            .unwrap();
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="20" height="20">
+                 <BUTTON id="grip" width="20" height="20" onClick="x = 1;"/>
+                 <SUBVIEW id="edge" zIndex="1" width="20" height="20" backgroundImage="edge.png" transparencyColor="#FF00FF" backgroundTiled="true"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        shared.read(|s| {
+            let id = |name: &str| Some(s.view(v).by_id[name]);
+            assert_eq!(s.hit_test_point(v, 4.5, 9.5), id("grip"), "a see-through pixel of the tiles");
+            assert_eq!(s.hit_test_point(v, 5.5, 9.5), id("edge"), "a solid one");
+        });
+    }
+
+    /// anime's animated background covers its sliders only in some frames.
+    #[test]
+    fn an_animated_background_takes_clicks_where_its_shown_frame_is_solid() {
+        let dir = temp_dir("gif-hit");
+        let mut file = std::fs::File::create(dir.join("anim.gif")).unwrap();
+        let mut gif = gif::Encoder::new(&mut file, 4, 4, &[0, 0, 0, 90, 90, 90]).unwrap();
+        gif.set_repeat(gif::Repeat::Infinite).unwrap();
+        for (solid, delay) in [(true, 2), (false, 1000)] {
+            let mut frame = gif::Frame::from_indexed_pixels(4, 4, vec![if solid { 1 } else { 0 }; 16], Some(0));
+            frame.delay = delay;
+            frame.dispose = gif::DisposalMethod::Background;
+            gif.write_frame(&frame).unwrap();
+        }
+        drop(gif);
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="4" height="4">
+                 <BUTTON id="under" width="4" height="4" onClick="x = 1;"/>
+                 <SUBVIEW id="anim" zIndex="1" backgroundImage="anim.gif"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        let id = |name: &str| shared.read(|s| Some(s.view(v).by_id[name]));
+        assert_eq!(shared.read(|s| s.hit_test_point(v, 1.0, 1.0)), id("anim"), "the first frame is solid");
+        shared.read(|s| s.render_view(v, 1.0));
+        shared.tick(Instant::now() + std::time::Duration::from_millis(60));
+        assert_eq!(shared.read(|s| s.hit_test_point(v, 1.0, 1.0)), id("under"), "the shown frame is clear");
+    }
+
+    /// Secura's display subview is far larger than its picture, over the next button.
+    #[test]
+    fn a_subview_takes_no_clicks_past_its_picture() {
+        let dir = temp_dir("past-picture");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([90, 90, 90, 255])).save(dir.join("small.png")).unwrap();
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="20" height="20">
+                 <BUTTON id="next" width="20" height="20" onClick="x = 1;"/>
+                 <SUBVIEW id="display" zIndex="1" width="20" height="20" backgroundImage="small.png"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        shared.read(|s| {
+            let id = |name: &str| Some(s.view(v).by_id[name]);
+            assert_eq!(s.hit_test_point(v, 1.5, 1.5), id("display"));
+            assert_eq!(s.hit_test_point(v, 6.5, 0.5), id("next"), "right of the picture, not its next row");
+        });
+    }
 }

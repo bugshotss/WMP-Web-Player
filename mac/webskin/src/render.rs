@@ -283,6 +283,12 @@ impl Canvas {
     }
 }
 
+/// The pixel at (x, y), or None outside: `Pixmap::pixel` checks only the row, so an x past the
+/// right edge reads the next row.
+pub fn pixel_at(pm: &Pixmap, x: i32, y: i32) -> Option<tiny_skia::PremultipliedColorU8> {
+    (x >= 0 && y >= 0 && (x as u32) < pm.width() && (y as u32) < pm.height()).then(|| pm.pixels()[y as usize * pm.width() as usize + x as usize])
+}
+
 fn color(rgb: u32, alpha: u8) -> tiny_skia::Color {
     tiny_skia::Color::from_rgba8(((rgb >> 16) & 255) as u8, ((rgb >> 8) & 255) as u8, (rgb & 255) as u8, alpha)
 }
