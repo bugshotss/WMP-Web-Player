@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using WebSkinPlayer.Skins.Scripting;
 
 namespace WebSkinPlayer.Skins.Elements;
@@ -126,7 +127,23 @@ public class SkinElement : ScriptObject
         }
     }
 
-    public IEnumerable<SkinElement> ChildrenInDrawOrder => Children.OrderBy(c => c.ZIndex).ThenBy(c => c.Order);
+    /// <summary>
+    /// Children drawn before the container's background image (negative zIndex in a SUBVIEW, seen
+    /// through its transparent holes as in Goo and Creed), then those drawn after. A VIEW keeps
+    /// all its children on top: its clippingColor pixels are keyed out of the window whatever is
+    /// drawn behind them (YIL!OMA2K and Radio keep their screens visible so). A button group draws
+    /// its buttons itself.
+    /// </summary>
+    public (SkinElement[] Behind, SkinElement[] Above) ChildrenBehindAndAbove
+    {
+        get
+        {
+            if (this is ButtonGroupElement) return ([], []);
+            var all = Children.OrderBy(c => c.ZIndex).ThenBy(c => c.Order).ToArray();
+            if (!ClipsChildren || this is SkinView) return ([], all);
+            return (all.Where(c => c.ZIndex < 0).ToArray(), all.Where(c => c.ZIndex >= 0).ToArray());
+        }
+    }
 
     // Track size so alignment can be applied on parent resize.
     int _lastW = -1, _lastH = -1;
@@ -215,12 +232,24 @@ public class SkinElement : ScriptObject
         return null;
     }
 
+    static readonly string[] MouseHandlers = { "onclick", "onmousedown", "onmouseup", "ondblclick", "onmouseover", "onmouseout", "onmousemove" };
+
+    /// <summary>
+    /// Whether the element does something with the mouse: a tooltip, or a handler in its attributes or
+    /// assigned by a script. Parts that draw nothing to click take clicks only then.
+    /// </summary>
+    public bool UsesMouse => CurrentToolTip != null || MouseHandlers.Any(h =>
+        HasHandler(h) || (Values.TryGetValue(h, out var v) && v is Jint.Native.Function.Function));
+
     /// <summary>Whether a click here should be handled by the element rather than drag the window.</summary>
     public virtual bool IsInteractive =>
         HasHandler("onclick") || HasHandler("onmousedown") || HasHandler("onmouseup") || HasHandler("ondblclick");
 
     /// <summary>Local hit test (point relative to element origin).</summary>
     public virtual bool HitTest(Point local) => local.X >= 0 && local.Y >= 0 && local.X < Width && local.Y < Height;
+
+    /// <summary>Hit test for what is drawn over the negative-zIndex children (not a backgroundColor).</summary>
+    public virtual bool HitTestImage(Point local) => HitTest(local);
 
     public virtual string? CurrentToolTip => NonEmpty(GetString("tooltip")) ?? NonEmpty(GetString("uptooltip"));
     protected static string? NonEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
@@ -264,6 +293,9 @@ public class SkinElement : ScriptObject
 
     /// <summary>Draws this element at its absolute position (children are drawn by the caller).</summary>
     public virtual void Render(DrawingContext dc, Rect bounds) { }
+
+    /// <summary>Draws what sits under even the negative-zIndex children (a container's backgroundColor).</summary>
+    public virtual void RenderBackdrop(DrawingContext dc, Rect bounds) { }
 
     /// <summary>Called once after load completes (bindings applied, scripts run).</summary>
     public virtual void OnLoaded() { }
@@ -310,8 +342,16 @@ public class SkinElement : ScriptObject
     /// <summary>True when the mask repeats (a tiled background that doubles as the clipping shape).</summary>
     public virtual bool MaskTiled => false;
 
+    /// <summary>A shape the element is also cut to, and where its top-left sits in view coordinates (null = none).</summary>
+    public virtual (SkinBitmap Mask, Point At)? HostMask => null;
+
     public bool MaskAllows(Point local)
     {
+        if (HostMask is { } host)
+        {
+            var abs = Absolute;
+            if (host.Mask.Alpha((int)(local.X + abs.X - host.At.X), (int)(local.Y + abs.Y - host.At.Y)) == 0) return false;
+        }
         var m = ClipMask;
         if (m == null) return true;
         int x = (int)local.X, y = (int)local.Y;
@@ -342,13 +382,20 @@ public class SkinElement : ScriptObject
         if (!_animStart.TryGetValue(key, out var start)) _animStart[key] = start = now;
         var frame = bmp.FrameAt((now - start).TotalMilliseconds, out double next);
         if (next >= 0) View.RequestAnimationFrame(next);
+        _shown[key] = frame;
         return frame;
     }
+
+    readonly Dictionary<string, BitmapSource> _shown = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The frame of <paramref name="bmp"/> last drawn under <paramref name="key"/> (its first before any).</summary>
+    protected BitmapSource ShownFrame(SkinBitmap bmp, string key) => bmp.IsAnimated && _shown.TryGetValue(key, out var f) ? f : bmp.Source;
 
     /// <summary>Restart animated GIFs (an element shown again plays its animation from the top).</summary>
     public void RestartAnimations()
     {
         _animStart.Clear();
+        _shown.Clear();
         foreach (var c in Children) c.RestartAnimations();
     }
 

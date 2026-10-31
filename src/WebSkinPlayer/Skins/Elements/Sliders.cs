@@ -274,7 +274,7 @@ public sealed class CustomSliderElement : SkinElement
 
     protected override void OnPropertyChanged(string name)
     {
-        if (name is "image" or "transparencycolor" or "width" or "hueshift" or "saturation") _frames.Clear();
+        if (name is "image" or "transparencycolor" or "width" or "height" or "hueshift" or "saturation") _frames.Clear();
     }
 
     public override void Render(DrawingContext dc, Rect b)
@@ -282,14 +282,22 @@ public sealed class CustomSliderElement : SkinElement
         var strip = Strip;
         if (strip == null) return;
         int fw = Math.Max(1, Width > 0 ? Width : strip.Width);
-        int frames = Math.Max(1, strip.Width / fw);
+        int fh = Math.Max(1, Height > 0 ? Height : strip.Height);
+        // Frames run left to right, or top to bottom when the strip is one frame wide
+        // (Windows XP Media Center Edition's seek bar).
+        bool vertical = strip.Width / fw <= 1 && strip.Height / fh > 1;
+        int len = vertical ? strip.Height : strip.Width, step = vertical ? fh : fw;
+        int frames = Math.Max(1, len / step);
         double range = GetNumber("max") - GetNumber("min");
         double r = range == 0 ? 0 : Math.Clamp((GetNumber("value") - GetNumber("min")) / range, 0, 1);
         int f = (int)Math.Round(r * (frames - 1));
         if (!_frames.TryGetValue(f, out var crop))
         {
-            int x = Math.Min(f * fw, Math.Max(0, strip.Width - fw));
-            crop = new CroppedBitmap(strip.Source, new Int32Rect(x, 0, Math.Min(fw, strip.Width - x), strip.Height));
+            int at = Math.Min(f * step, Math.Max(0, len - step));
+            int size = Math.Min(step, len - at);
+            crop = new CroppedBitmap(strip.Source, vertical
+                ? new Int32Rect(0, at, strip.Width, size)
+                : new Int32Rect(at, 0, size, strip.Height));
             crop.Freeze();
             _frames[f] = crop;
         }
@@ -304,7 +312,7 @@ public sealed class CustomSliderElement : SkinElement
         int rgb = map.Rgb((int)local.X, (int)local.Y);
         if (rgb < 0) return false;
         int? key = SkinImages.ParseColor(GetString("transparencycolor"));
-        if (key.HasValue && rgb == key.Value) return false;
+        if (key is int k && SkinImages.MatchesKey(rgb, k)) return false;
         int gray = ((rgb >> 16) & 255) * 30 / 100 + ((rgb >> 8) & 255) * 59 / 100 + (rgb & 255) * 11 / 100;
         value = GetNumber("min") + gray / 255.0 * (GetNumber("max") - GetNumber("min"));
         return true;

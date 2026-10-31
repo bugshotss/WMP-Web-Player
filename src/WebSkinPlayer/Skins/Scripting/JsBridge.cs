@@ -87,11 +87,15 @@ public sealed class JsBridge
         return v; // functions, arrays, plain objects stay as JS values
     }
 
+    /// <summary>Errors already reported: a handler that fails on every position change is reported once.</summary>
+    readonly HashSet<string> _reported = new();
+
     void Report(string where, Exception ex)
     {
-        ErrorCount++;
         string msg = ex is JavaScriptException js ? $"{js.Error} (line {js.Location.Start.Line})" : ex.Message;
         string line = $"[{_label}] script error in {where}: {msg}";
+        if (!_reported.Add(line)) return;
+        ErrorCount++;
         Log.Write(line);
         ScriptError?.Invoke(line);
     }

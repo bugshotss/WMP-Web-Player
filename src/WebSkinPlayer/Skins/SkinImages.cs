@@ -69,7 +69,7 @@ public sealed class SkinBitmap
     {
         if (_shapes.TryGetValue(key, out var shape)) return shape;
         var px = new int[Original.Length];
-        for (int i = 0; i < px.Length; i++) px[i] = (Original[i] & 0xFFFFFF) == key ? 0 : unchecked((int)0xFF000000);
+        for (int i = 0; i < px.Length; i++) px[i] = SkinImages.MatchesKey(Original[i] & 0xFFFFFF, key) ? 0 : unchecked((int)0xFF000000);
         return _shapes[key] = new SkinBitmap(Width, Height, px, px);
     }
 
@@ -78,6 +78,15 @@ public sealed class SkinBitmap
 
     /// <summary>Drawn alpha at x,y (0 when outside).</summary>
     public int Alpha(int x, int y) => (uint)x < (uint)Width && (uint)y < (uint)Height ? (Pixels[y * Width + x] >>> 24) : 0;
+
+    /// <summary>Alpha at x,y in one of this image's frames (0 when outside).</summary>
+    public int Alpha(BitmapSource frame, int x, int y)
+    {
+        if (frame == Source || (uint)x >= (uint)frame.PixelWidth || (uint)y >= (uint)frame.PixelHeight) return Alpha(x, y);
+        var px = new int[1];
+        frame.CopyPixels(new System.Windows.Int32Rect(x, y, 1, 1), px, 4, 0);
+        return px[0] >>> 24;
+    }
 }
 
 /// <summary>Per-skin image cache with colour-key and hue/saturation variants.</summary>
@@ -90,6 +99,24 @@ public sealed class SkinImages
     readonly Dictionary<string, SkinBitmap?> _variants = new(StringComparer.OrdinalIgnoreCase);
 
     public SkinImages(SkinPackage pkg) => _pkg = pkg;
+
+    /// <summary>
+    /// Whether <paramref name="rgb"/> is the key colour <paramref name="key"/>. The key's 16-bit forms
+    /// (5-5-5 and 5-6-5) match too: bitmaps saved from a 16-bit desktop hold those (YIL Online Music
+    /// Awards' speakers are #639CFF for the key #6699FF).
+    /// </summary>
+    public static bool MatchesKey(int rgb, int key) => rgb == key || rgb == SixteenBit(key, 5) || rgb == SixteenBit(key, 6);
+
+    /// <summary><paramref name="rgb"/> with each channel cut to 5 bits (green to <paramref name="greenBits"/>) and widened back to 8.</summary>
+    static int SixteenBit(int rgb, int greenBits)
+    {
+        int Channel(int shift, int bits)
+        {
+            int v = ((rgb >> shift) & 255) >> (8 - bits);
+            return ((v << (8 - bits)) | (v >> (2 * bits - 8))) << shift;
+        }
+        return Channel(16, 5) | Channel(8, greenBits) | Channel(0, 5);
+    }
 
     public static int? ParseColor(string? s)
     {
@@ -157,13 +184,14 @@ public sealed class SkinImages
         var canvas = new int[W * H];
         var frames = new List<int[]>();
         var delays = new List<int>();
+        var disposals = new int[count];
         int pendingDelay = 0;
         for (int i = 0; i < count; i++)
         {
             var f = gif.Frames[i];
             var meta = f.Metadata as BitmapMetadata;
             int left = Q(meta, "/imgdesc/Left"), top = Q(meta, "/imgdesc/Top");
-            int disposal = Q(meta, "/grctlext/Disposal");
+            int disposal = disposals[i] = Q(meta, "/grctlext/Disposal");
             int delay = Q(meta, "/grctlext/Delay") * 10;
             if (delay < 20) delay = 100; // browsers' convention for 0/too-fast delays
 
@@ -204,6 +232,15 @@ public sealed class SkinImages
                 loops = ext[2] | (ext[3] << 8); // 0 = forever
         }
         catch { }
+        // A finite animation whose last frame alone asks to be cleared (background or previous) ends
+        // cleared: QuickSilver's shutter opens onto the display under it. When every frame asks, that
+        // was only how the GIF was saved, and the last frame stays (Xbox Live's buttons, in its preview).
+        int last = disposals[^1];
+        if (loops > 0 && last is 2 or 3 && disposals.Any(d => d != last))
+        {
+            frames.Add(canvas);
+            delays.Add(0);
+        }
         return new Decoded(W, H, frames[0], frames, delays.ToArray(), loops);
 
         static int Q(BitmapMetadata? m, string q)
@@ -289,7 +326,7 @@ public sealed class SkinImages
                 int c = src[i];
                 int rgb = c & 0xFFFFFF;
                 int a = (c >>> 24) & 255;
-                if ((keyColor.HasValue && rgb == keyColor.Value) || (secondKey.HasValue && rgb == secondKey.Value)) { outPx[i] = 0; continue; }
+                if ((keyColor is int k1 && MatchesKey(rgb, k1)) || (secondKey is int k2 && MatchesKey(rgb, k2))) { outPx[i] = 0; continue; }
                 if (tint) rgb = Tint(rgb, hueShift, saturation);
                 int r = (rgb >> 16) & 255, g = (rgb >> 8) & 255, b = rgb & 255;
                 if (a < 255) { r = r * a / 255; g = g * a / 255; b = b * a / 255; }

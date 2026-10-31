@@ -53,6 +53,22 @@ public class EffectsElement : SkinElement
 
     public override bool IsInteractive => HasHandler("onclick") || HasHandler("ondblclick") || HasHandler("onmousedown");
 
+    /// <summary>
+    /// WMP hosted EFFECTS and VIDEO in a window cut to their parent subview's shape. With no clipping
+    /// of its own, that shape is the transparencyColor outline (Plus! Bionic Dot's dome); other
+    /// children of the subview still paint over those pixels.
+    /// </summary>
+    public override (SkinBitmap Mask, Point At)? HostMask
+    {
+        get
+        {
+            if (Parent is not SubviewElement host || host is SkinView || host.MaskTiled || host.ClipMask != null) return null;
+            if (SkinImages.ParseColor(host.GetString("transparencycolor")) is not int key) return null;
+            var shape = View.Theme.Images.GetRaw(host.GetString("backgroundimage"))?.ShapeOf(key);
+            return shape == null ? null : (shape, host.Absolute);
+        }
+    }
+
     public override void OnLoaded()
     {
         var svc = App.Services.Visualizations;
