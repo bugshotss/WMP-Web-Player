@@ -688,6 +688,10 @@ public sealed class SkinView : SubviewElement
     /// </summary>
     int[]? FindHoles(DrawPass drawn, int[] final, int w, int h, bool viewMask)
     {
+        // A hole is cut only where the window shows its key, so most views need no search at all.
+        var keys = drawn.Steps.Select(s => s.El).OfType<SubviewElement>().Where(s => s != this)
+            .Select(s => SkinImages.ParseColor(s.GetString("transparencycolor"))).OfType<int>().Distinct().ToArray();
+        if (!final.Any(c => (c >>> 24) == 255 && keys.Any(k => SkinImages.MatchesKey(c & 0xFFFFFF, k)))) return null;
         int[]? holes = null;
         var view = new Rect(0, 0, w, h);
         foreach (var (el, backdrop) in drawn.Steps)
