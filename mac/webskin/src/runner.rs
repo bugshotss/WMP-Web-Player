@@ -9,6 +9,7 @@ use crate::render::Canvas;
 use crate::settings::Settings;
 use crate::skin::audit;
 use crate::skin::{NullHost, Shared, Skin, ViewId};
+use std::cell::Cell;
 use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -59,7 +60,11 @@ struct Window {
 }
 
 /// A song playing, as skins are used and as their authors took their preview screenshots.
-pub(crate) struct Playing;
+/// It moves on by `elapsed` seconds, so skins that follow currentPosition_onchange see it play.
+#[derive(Default)]
+pub(crate) struct Playing {
+    elapsed: Rc<Cell<f64>>,
+}
 
 impl MediaSource for Playing {
     fn snapshot(&self) -> MediaSnapshot {
@@ -79,7 +84,7 @@ impl MediaSource for Playing {
         }
     }
     fn position(&self) -> f64 {
-        40.0
+        40.0 + self.elapsed.get()
     }
     fn artwork(&self) -> Option<Rc<Artwork>> {
         None
@@ -102,13 +107,16 @@ impl MediaSource for Playing {
 /// often just an image).
 /// Returns them with the script errors raised on the way.
 fn applied_windows(path: &Path) -> Result<(Vec<String>, Vec<Window>), String> {
-    let shared = Shared::load(path, Box::new(Playing), Settings::scratch(), Rc::new(NullHost), false).map_err(|e| e.0)?;
+    let playing = Playing::default();
+    let elapsed = playing.elapsed.clone();
+    let shared = Shared::load(path, Box::new(playing), Settings::scratch(), Rc::new(NullHost), false).map_err(|e| e.0)?;
     shared.open_main_view();
     // Eight seconds of timers: some skins open their main window from one (World of Warcraft),
     // and intros play out. Each step draws, as the app does: a GIF's clock starts when it is
     // first drawn (Catwoman's shutter opens with one).
     let start = Instant::now();
     for step in 1..=80 {
+        elapsed.set(step as f64 / 10.0);
         shared.tick(start + Duration::from_millis(step * 100));
         shared.read(|s| s.open_views().for_each(|v| drop(s.render_view(v, 1.0))));
     }

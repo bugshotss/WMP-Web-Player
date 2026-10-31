@@ -875,10 +875,10 @@ mod tests {
 
     impl MediaSource for Recorder {
         fn snapshot(&self) -> MediaSnapshot {
-            MediaSnapshot { status: MediaStatus::Paused, ..crate::runner::Playing.snapshot() }
+            MediaSnapshot { status: MediaStatus::Paused, ..crate::runner::Playing::default().snapshot() }
         }
         fn position(&self) -> f64 {
-            crate::runner::Playing.position()
+            crate::runner::Playing::default().position()
         }
         fn artwork(&self) -> Option<Rc<Artwork>> {
             None
