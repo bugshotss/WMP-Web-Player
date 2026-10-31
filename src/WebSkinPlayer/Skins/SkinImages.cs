@@ -184,13 +184,14 @@ public sealed class SkinImages
         var canvas = new int[W * H];
         var frames = new List<int[]>();
         var delays = new List<int>();
+        var disposals = new int[count];
         int pendingDelay = 0;
         for (int i = 0; i < count; i++)
         {
             var f = gif.Frames[i];
             var meta = f.Metadata as BitmapMetadata;
             int left = Q(meta, "/imgdesc/Left"), top = Q(meta, "/imgdesc/Top");
-            int disposal = Q(meta, "/grctlext/Disposal");
+            int disposal = disposals[i] = Q(meta, "/grctlext/Disposal");
             int delay = Q(meta, "/grctlext/Delay") * 10;
             if (delay < 20) delay = 100; // browsers' convention for 0/too-fast delays
 
@@ -231,6 +232,15 @@ public sealed class SkinImages
                 loops = ext[2] | (ext[3] << 8); // 0 = forever
         }
         catch { }
+        // A finite animation whose last frame alone asks to be cleared (background or previous) ends
+        // cleared: QuickSilver's shutter opens onto the display under it. When every frame asks, that
+        // was only how the GIF was saved, and the last frame stays (Xbox Live's buttons, in its preview).
+        int last = disposals[^1];
+        if (loops > 0 && last is 2 or 3 && disposals.Any(d => d != last))
+        {
+            frames.Add(canvas);
+            delays.Add(0);
+        }
         return new Decoded(W, H, frames[0], frames, delays.ToArray(), loops);
 
         static int Q(BitmapMetadata? m, string q)
