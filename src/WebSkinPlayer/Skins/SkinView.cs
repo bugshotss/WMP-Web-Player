@@ -597,7 +597,8 @@ public sealed class SkinView : SubviewElement
 
     public void RenderTree(DrawingContext dc)
     {
-        bool viewMask = !KeysWindow;
+        // A VIEW's keys cut the window only without a title bar; otherwise its clipping mask shapes it.
+        bool viewMask = GetBool("titlebar") || !KeysWindow;
         if (UsesCompositeMask)
         {
             EnsureCompositeMask(viewMask);
