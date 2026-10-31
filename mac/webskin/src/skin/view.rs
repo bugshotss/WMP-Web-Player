@@ -181,6 +181,9 @@ fn has_prefix(v: &str, p: &str) -> bool {
     v.len() >= p.len() && v[..p.len()].eq_ignore_ascii_case(p)
 }
 
+/// The colour WMP keyed out of a frameless window's background.
+const MAGENTA: u32 = 0xFF_00FF;
+
 impl Skin {
     fn apply_attributes(&mut self, v: ViewId, e: usize, node: &WmsNode, plan: &mut Plan) {
         for (name, raw) in &node.attributes {
@@ -694,13 +697,7 @@ impl Skin {
     pub fn render_view(&self, v: ViewId, scale: f32) -> Option<Canvas> {
         let (w, h) = (self.width(v, 0).clamp(1, 4000) as u32, self.height(v, 0).clamp(1, 4000) as u32);
         let mut canvas = Canvas::new(w, h, scale)?;
-        let keys = self.view_keys(v);
-        let full = Rect::new(0.0, 0.0, f64::from(w), f64::from(h));
-        self.render_tree(v, 0, &mut canvas, full, keys.is_empty());
-        canvas.cut_holes();
-        if !keys.is_empty() {
-            canvas.key_out(&keys);
-        }
+        self.draw_window(v, &mut canvas, Rect::new(0.0, 0.0, f64::from(w), f64::from(h)));
         Some(canvas)
     }
 
@@ -715,13 +712,20 @@ impl Skin {
             return None;
         }
         let mut canvas = Canvas::region(area, scale)?;
-        let keys = self.view_keys(v);
-        self.render_tree(v, 0, &mut canvas, area, keys.is_empty());
-        canvas.cut_holes();
-        if !keys.is_empty() {
-            canvas.key_out(&keys);
-        }
+        self.draw_window(v, &mut canvas, area);
         Some(canvas)
+    }
+
+    /// Draws `area` of the view and cuts what WMP's window left see-through. A window without a
+    /// title bar also loses magenta wherever it shows: WMP filled the window's empty background
+    /// with it and keyed it out, so magenta drawn over a hole vanished too (WWC's intro over its
+    /// pipes; World of Warcraft's sliders, as its preview screenshot shows).
+    fn draw_window(&self, v: ViewId, canvas: &mut Canvas, area: Rect) {
+        let keys = self.view_keys(v);
+        self.render_tree(v, 0, canvas, area, keys.is_empty());
+        canvas.cut_holes();
+        let frameless = !self.get_bool(v, 0, "titlebar");
+        canvas.key_out(&keys.into_iter().chain(frameless.then_some(MAGENTA)).collect::<Vec<_>>());
     }
 
     /// A VIEW with children behind it: its colour, them, then its image. They show through the

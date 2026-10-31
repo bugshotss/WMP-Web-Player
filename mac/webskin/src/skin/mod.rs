@@ -1025,12 +1025,12 @@ mod tests {
     #[test]
     fn a_key_colour_painted_over_a_subview_hole_is_cut() {
         let dir = temp_dir("holes");
-        let (pink, grey, blue) = (image::Rgba([255, 0, 255, 255]), image::Rgba([90, 90, 90, 255]), image::Rgba([0, 0, 255, 255]));
+        let (key, grey, blue) = (image::Rgba([0, 255, 0, 255]), image::Rgba([90, 90, 90, 255]), image::Rgba([0, 0, 255, 255]));
         // Columns 0-9 the body's key (open), 10-19 the body.
-        image::RgbaImage::from_fn(20, 10, |x, _| if x < 10 { pink } else { grey }).save(dir.join("body.png")).unwrap();
-        // Over the hole: pink, then blue; over the body: pink, then nothing.
+        image::RgbaImage::from_fn(20, 10, |x, _| if x < 10 { key } else { grey }).save(dir.join("body.png")).unwrap();
+        // Over the hole: the key, then blue; over the body: the key, then nothing.
         image::RgbaImage::from_fn(20, 5, |x, _| match x {
-            0..=4 | 10..=14 => pink,
+            0..=4 | 10..=14 => key,
             5..=9 => blue,
             _ => image::Rgba([0, 0, 0, 0]),
         })
@@ -1039,8 +1039,8 @@ mod tests {
         std::fs::write(
             dir.join("t.wms"),
             r##"<THEME><VIEW id="Main" width="20" height="10" backgroundColor="none" titleBar="false">
-                 <SUBVIEW id="body" backgroundImage="body.png" transparencyColor="#FF00FF"/>
-                 <SUBVIEW id="drawer" zIndex="1" top="5" width="5" height="5" backgroundColor="#FF00FF"/>
+                 <SUBVIEW id="body" backgroundImage="body.png" transparencyColor="#00FF00"/>
+                 <SUBVIEW id="drawer" zIndex="1" top="5" width="5" height="5" backgroundColor="#00FF00"/>
                  <BUTTON id="b" zIndex="2" image="button.png"/>
                </VIEW></THEME>"##,
         )
@@ -1051,9 +1051,9 @@ mod tests {
         let rgba = |x: u32, y: u32| canvas.pixmap.pixel(x * 2, y * 2).map(|p| (p.red(), p.green(), p.blue(), p.alpha()));
         assert_eq!(rgba(2, 2), Some((0, 0, 0, 0)), "the key painted over the hole is cut");
         assert_eq!(rgba(7, 2), Some((0, 0, 255, 255)), "other colours over the hole stay");
-        assert_eq!(rgba(12, 2), Some((255, 0, 255, 255)), "the key painted over the body stays");
+        assert_eq!(rgba(12, 2), Some((0, 255, 0, 255)), "the key painted over the body stays");
         assert_eq!(rgba(7, 7), Some((0, 0, 0, 0)), "the hole itself");
-        assert_eq!(rgba(2, 7), Some((255, 0, 255, 255)), "a subview filling the hole covers it");
+        assert_eq!(rgba(2, 7), Some((0, 255, 0, 255)), "a subview filling the hole covers it");
         let part = shared.read(|s| s.render_region(v, 2.0, Rect::new(0.0, 0.0, 10.0, 5.0))).unwrap();
         assert_eq!(part.pixmap.pixel(4, 4).map(|p| p.alpha()), Some(0), "a redrawn region cuts it too");
     }
@@ -1320,5 +1320,31 @@ mod tests {
             assert_eq!(s.hit_test_point(v, 1.5, 1.5), id("display"));
             assert_eq!(s.hit_test_point(v, 6.5, 0.5), id("next"), "right of the picture, not its next row");
         });
+    }
+
+    /// WMP filled a frameless window's empty background with magenta and keyed it out, so
+    /// magenta vanished wherever it was drawn: over a hole with something under it (WWC's intro
+    /// over its pipes) or over solid parts.
+    #[test]
+    fn a_frameless_window_loses_magenta_everywhere() {
+        let dir = temp_dir("magenta");
+        let (pink, grey) = (image::Rgba([255, 0, 255, 255]), image::Rgba([90, 90, 90, 255]));
+        image::RgbaImage::from_fn(4, 1, |x, _| if x < 2 { pink } else { grey }).save(dir.join("art.png")).unwrap();
+        let wms = |title_bar: &str| {
+            format!(
+                r##"<THEME><VIEW id="Main" width="4" height="1" titleBar="{title_bar}">
+                     <SUBVIEW backgroundColor="#5A5A5A" width="4" height="1"/>
+                     <BUTTON zIndex="1" image="art.png"/>
+                   </VIEW></THEME>"##
+            )
+        };
+        for (title_bar, alpha) in [("false", 0), ("true", 255)] {
+            std::fs::write(dir.join("t.wms"), wms(title_bar)).unwrap();
+            let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+            let v = shared.load_main_view_offscreen();
+            let canvas = shared.read(|s| s.render_view(v, 1.0)).unwrap();
+            assert_eq!(canvas.pixmap.pixel(0, 0).map(|p| p.alpha()), Some(alpha), "titleBar={title_bar}");
+            assert_eq!(canvas.pixmap.pixel(3, 0).map(|p| p.alpha()), Some(255), "grey stays");
+        }
     }
 }
