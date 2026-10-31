@@ -105,10 +105,12 @@ fn applied_windows(path: &Path) -> Result<(Vec<String>, Vec<Window>), String> {
     let shared = Shared::load(path, Box::new(Playing), Settings::scratch(), Rc::new(NullHost), false).map_err(|e| e.0)?;
     shared.open_main_view();
     // Eight seconds of timers: some skins open their main window from one (World of Warcraft),
-    // and intros play out.
+    // and intros play out. Each step draws, as the app does: a GIF's clock starts when it is
+    // first drawn (Catwoman's shutter opens with one).
     let start = Instant::now();
     for step in 1..=80 {
         shared.tick(start + Duration::from_millis(step * 100));
+        shared.read(|s| s.open_views().for_each(|v| drop(s.render_view(v, 1.0))));
     }
     let views: Vec<ViewId> = shared.read(|s| s.open_views().collect());
     let windows = views
