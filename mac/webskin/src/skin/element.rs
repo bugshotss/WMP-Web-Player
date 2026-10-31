@@ -716,7 +716,14 @@ impl Skin {
         let size = |b: Option<Rc<SkinBitmap>>| b.map(|b| (b.width as i32, b.height as i32));
         let el = self.el(v, e);
         match el.kind {
-            Kind::View | Kind::Subview => size(self.background(v, e)).unwrap_or_default(),
+            Kind::View => size(self.background(v, e)).unwrap_or_default(),
+            // With no picture it holds its children, as WMP showed them: Catwoman's time digits
+            // sit in a subview given only a position.
+            Kind::Subview => size(self.background(v, e)).unwrap_or_else(|| {
+                el.children.iter().fold((0, 0), |(w, h), &c| {
+                    (w.max(self.get_int(v, c, "left") + self.width(v, c)), h.max(self.get_int(v, c, "top") + self.height(v, c)))
+                })
+            }),
             Kind::Button => size(self.img(v, e, "image")).unwrap_or_default(),
             Kind::ButtonGroup => size(self.raw_img(v, e, "mappingimage")).or_else(|| size(self.img(v, e, "image"))).unwrap_or_default(),
             Kind::GroupButton => el.parent.map_or((0, 0), |p| (self.width(v, p), self.height(v, p))),

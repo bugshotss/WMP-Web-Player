@@ -1347,4 +1347,28 @@ mod tests {
             assert_eq!(canvas.pixmap.pixel(3, 0).map(|p| p.alpha()), Some(255), "grey stays");
         }
     }
+
+    /// Catwoman's time digits sit in a subview given only a position.
+    #[test]
+    fn a_subview_without_size_or_picture_holds_its_children() {
+        let dir = temp_dir("auto-size");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([90, 90, 90, 255])).save(dir.join("digit.png")).unwrap();
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="20" height="20">
+                 <SUBVIEW id="time" left="2" top="2">
+                   <BUTTON left="5" top="5" image="digit.png"/>
+                 </SUBVIEW>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), Settings::scratch(), Rc::new(NullHost), false).unwrap();
+        let v = shared.load_main_view_offscreen();
+        let (size, canvas) = shared.read(|s| {
+            let time = s.view(v).by_id["time"];
+            ((s.width(v, time), s.height(v, time)), s.render_view(v, 1.0).unwrap())
+        });
+        assert_eq!(size, (9, 9));
+        assert_eq!(canvas.pixmap.pixel(8, 8).map(|p| p.alpha()), Some(255), "the digit shows");
+    }
 }
