@@ -718,9 +718,10 @@ impl Skin {
         match el.kind {
             Kind::View => size(self.background(v, e)).unwrap_or_default(),
             // With no picture it holds its children, as WMP showed them: Catwoman's time digits
-            // sit in a subview given only a position.
+            // sit in a subview given only a position. A text sized by its words adds nothing, so
+            // the string tables many skins keep in such a subview (WoW, Disney) stay hidden.
             Kind::Subview => size(self.background(v, e)).unwrap_or_else(|| {
-                el.children.iter().fold((0, 0), |(w, h), &c| {
+                el.children.iter().filter(|&&c| self.el(v, c).kind != Kind::Text || self.has_value(v, c, "width")).fold((0, 0), |(w, h), &c| {
                     (w.max(self.get_int(v, c, "left") + self.width(v, c)), h.max(self.get_int(v, c, "top") + self.height(v, c)))
                 })
             }),
