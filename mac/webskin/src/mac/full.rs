@@ -95,6 +95,15 @@ define_class!(
                 push_command("quit");
             }
         }
+
+        #[unsafe(method(windowDidExitFullScreen:))]
+        fn did_exit_full_screen(&self, _n: &NSNotification) {
+            if HIDE_AFTER_FULL_SCREEN.with(|h| h.replace(false))
+                && let Some(f) = get()
+            {
+                f.window.orderOut(None);
+            }
+        }
     }
 );
 
@@ -134,6 +143,7 @@ pub struct FullMode {
 
 thread_local! {
     static FULL: RefCell<Option<Rc<FullMode>>> = const { RefCell::new(None) };
+    static HIDE_AFTER_FULL_SCREEN: Cell<bool> = const { Cell::new(false) };
 }
 
 fn get() -> Option<Rc<FullMode>> {
@@ -506,9 +516,12 @@ pub fn hide() {
     if let Some(f) = get() {
         save_frame();
         if f.window.styleMask().contains(NSWindowStyleMask::FullScreen) {
+            // Leaving full screen animates: the window goes once it's out (windowDidExitFullScreen).
+            HIDE_AFTER_FULL_SCREEN.with(|h| h.set(true));
             f.window.toggleFullScreen(None);
+        } else {
+            f.window.orderOut(None);
         }
-        f.window.orderOut(None);
     }
 }
 
@@ -557,6 +570,8 @@ pub fn library_changed() {
 
 pub fn tick() {
     let Some(f) = get() else { return };
+    // Downloads and the archive.org list carry on while full mode is hidden.
+    f.chooser.tick();
     if !f.window.isVisible() {
         return;
     }
@@ -564,7 +579,6 @@ pub fn tick() {
         f.refreshed.set(Some(Instant::now()));
         f.refresh();
     }
-    f.chooser.tick();
 }
 
 /// For the snapshot hook.

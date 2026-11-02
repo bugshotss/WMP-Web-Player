@@ -158,6 +158,8 @@ pub struct Skin {
     pub preview: bool,
     /// The skin opened with the visualization last shown in it, which outranks the one it names.
     pub restored_vis: bool,
+    /// Whether this tick's script run keeps the remembered visualization (see `keeps_remembered`).
+    keep_remembered: Option<(Instant, bool)>,
     closed: bool,
     pub history: Vec<TrackInfo>,
     /// Expando properties scripts set on WMP's shared objects (mediacenter's are persisted).
@@ -533,6 +535,7 @@ impl Shared {
             settings,
             preview,
             restored_vis,
+            keep_remembered: None,
             closed: false,
             history: vec![],
             expandos,
@@ -1101,10 +1104,11 @@ mod tests {
             (shared, v, e)
         };
 
-        // First time: the skin's own choice, and the player-wide one starts at WMP's default.
+        // First time: the skin's own choice (effect and preset together), which it then remembers.
         let (shared, v, e) = open(Settings::scratch());
         assert_eq!(shared.read(|s| s.shown_vis(v, e)), (1, 2));
-        assert_eq!(shared.read(|s| s.global_vis()), (0, 0));
+        let first = shared.read(|s| s.settings.skin_effects.get("t.wms").cloned());
+        assert_eq!(first, Some(crate::settings::SkinEffect { effect: "Battery".into(), preset: 2 }));
         assert!(shared.run_action(&AppAction::Visualization(2, 1)));
         let remembered = shared.read(|s| s.settings.skin_effects.get("t.wms").cloned());
         assert_eq!(remembered, Some(crate::settings::SkinEffect { effect: "AlbumArt".into(), preset: 1 }));

@@ -242,12 +242,18 @@ fn install(info: &UpdateInfo, zip: &Path) -> Result<(), String> {
         return Err("The download doesn't hold WebSkin Player.app.".into());
     }
     // Waits for this copy to quit, swaps the new app in (keeping the old one until that worked), starts it.
+    // The new app is copied next to the old one first, so the swap is two renames on one disk and the
+    // installed app is never left half-replaced.
     let script = r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+new="$2.new"
 old="$2.previous"
-rm -rf "$old"
-if mv "$2" "$old"; then
-  if mv "$3" "$2"; then rm -rf "$old"; else mv "$old" "$2"; fi
+rm -rf "$new" "$old"
+if ditto "$3" "$new"; then
+  if mv "$2" "$old"; then
+    if mv "$new" "$2"; then rm -rf "$old"; else mv "$old" "$2"; fi
+  fi
 fi
+rm -rf "$new"
 open "$2""#;
     std::process::Command::new("/bin/sh")
         .args(["-c", script, "webskin-update", &std::process::id().to_string()])

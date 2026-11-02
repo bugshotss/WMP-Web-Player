@@ -42,6 +42,8 @@ pub struct Settings {
     pub start_mode: String,
     /// The menu-bar player stays in the menu bar in every mode, not only when the player is tucked into it.
     pub menu_bar_always: bool,
+    /// The player was showing a skin (not full mode) when it was tucked into the menu bar.
+    pub tucked_from_skin: bool,
     /// Full mode's window frame (x, y, width, height in Cocoa screen coordinates).
     pub full_mode_frame: Option<(f64, f64, f64, f64)>,
     /// The visualizer screen saver: random full-screen visualizations once the Mac has been idle this long.
@@ -68,6 +70,7 @@ impl Default for Settings {
             always_on_top: false,
             start_mode: String::new(),
             menu_bar_always: false,
+            tucked_from_skin: false,
             full_mode_frame: None,
             saver_enabled: false,
             saver_idle_minutes: 5,

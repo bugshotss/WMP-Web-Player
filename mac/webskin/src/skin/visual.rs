@@ -20,8 +20,9 @@ impl Skin {
         }
         self.settings.vis_effect = ALL[effect].id.to_string();
         self.settings.vis_preset = preset;
-        // The visualization shown in a skin is the one it opens with next time.
-        if !self.preview {
+        // The visualization shown in a skin is the one it opens with next time (but not one its close
+        // script names on the way out, as in the Windows app).
+        if !self.preview && !self.closed {
             self.settings.skin_effects.insert(self.key.clone(), SkinEffect { effect: ALL[effect].id.to_string(), preset });
         }
         self.settings.save();
@@ -77,10 +78,21 @@ impl Skin {
     /// A skin switching its visualizer on often names one as it does (Kenwood sets "Spikes" each time it
     /// changes from its song display to the visualizer). Once the skin has a visualization remembered, that
     /// comes back instead; one chosen while the visualizer is already showing (a skin's own visualization
-    /// menu) still applies.
-    fn keeps_remembered(&self, v: ViewId, e: usize) -> bool {
+    /// menu) still applies. Decided once per script run (tick), so a skin naming an effect and then its
+    /// preset counts as one choice.
+    fn keeps_remembered(&mut self, v: ViewId, e: usize) -> bool {
         let showing = self.effectively_visible(v, e) && self.el(v, e).state.vis.as_ref().is_some_and(|r| r.frames > 0);
-        !showing && self.remembers_vis()
+        if showing {
+            return false;
+        }
+        match self.keep_remembered {
+            Some((at, keep)) if at == self.now => keep,
+            _ => {
+                let keep = self.remembers_vis();
+                self.keep_remembered = Some((self.now, keep));
+                keep
+            }
+        }
     }
 
     /// What an element shows: its renderer's choice, or what its properties ask for. A skin's remembered

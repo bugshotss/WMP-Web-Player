@@ -758,7 +758,9 @@ impl Chooser {
                 d.current = None;
                 d.done += 1;
                 d.done_bytes += skin.size;
-                if let Err(e) = result {
+                if let Err(e) = result
+                    && e != "cancelled"
+                {
                     d.failed.push(format!("{}: {e}", skin.file));
                 }
             }
@@ -790,7 +792,8 @@ impl Chooser {
                 if !busy {
                     super::library_changed();
                 }
-                if apply && !busy {
+                // Only while the chooser is still where the user asked for it.
+                if apply && !busy && super::mode() == super::Mode::Full {
                     push(super::Pending::Load(path));
                 }
             }

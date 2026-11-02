@@ -958,7 +958,13 @@ fn start() {
         (Some(skin), _, _) => push(Pending::Load(skin)),
         (None, "full", _) => push_command("fullmode"),
         (None, "menubar", last) => {
-            APP.with(|a| a.borrow_mut().last_was_skin = last.is_some());
+            // Back where it was tucked away from: the skin, or full mode.
+            let from_skin = settings(|s| s.tucked_from_skin) && last.is_some();
+            APP.with(|a| {
+                let mut a = a.borrow_mut();
+                a.last_was_skin = from_skin;
+                a.mode = Mode::MenuBar;
+            });
             push_command("menubarmode");
         }
         (None, _, Some(last)) => push(Pending::Load(last)),
@@ -1062,7 +1068,8 @@ fn show_full_mode(tab: Option<full::Tab>) {
 
 /// Ctrl+2: the skin last used, or the Skin Chooser when there is none.
 fn skin_mode() {
-    if mode() == Mode::MenuBar && current().is_some() {
+    if current().is_some() {
+        // The skin is open already (perhaps tucked into the menu bar): bring it forward.
         restore(Some(true));
         return;
     }
@@ -1076,7 +1083,9 @@ fn skin_mode() {
 fn menu_bar_mode() {
     let was = mode();
     if was != Mode::MenuBar {
-        APP.with(|a| a.borrow_mut().last_was_skin = was == Mode::Skin);
+        let from_skin = was == Mode::Skin && current().is_some();
+        APP.with(|a| a.borrow_mut().last_was_skin = from_skin);
+        update_settings(|s| s.tucked_from_skin = from_skin);
     }
     for w in skin_windows() {
         w.set_shown(false);
@@ -1194,7 +1203,8 @@ pub(crate) fn run_command(command: &str) {
 /// Runs a menu entry chosen outside a skin (the menu bar, full mode, the menu-bar player).
 pub(crate) fn run_app_action(action: &AppAction) {
     match action {
-        AppAction::Host(command) => run_command(command),
+        // On the next tick: a command may close the very menu (or window) it was chosen from.
+        AppAction::Host(command) => push_command(command),
         AppAction::Visualization(effect, preset) => choose_vis(*effect, *preset),
         AppAction::VisColors(spec) => set_vis_colors(global_vis().0, spec),
         AppAction::PlayPause => play(Play::Toggle),

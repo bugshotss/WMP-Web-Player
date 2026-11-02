@@ -9,17 +9,36 @@ use crate::skin::{AppAction, MenuItem};
 use crate::vis::{ALL, Renderer, VisFrame};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{MainThreadMarker, MainThreadOnly, msg_send};
+use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSApplication, NSBackingStoreType, NSColor, NSCursor, NSEvent, NSScreen, NSScreenSaverWindowLevel, NSTextField, NSView, NSWindow,
+    NSApplication, NSBackingStoreType, NSColor, NSCursor, NSEvent, NSResponder, NSScreen, NSScreenSaverWindowLevel, NSTextField, NSView, NSWindow,
     NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_core_graphics::{CGEventSource, CGEventSourceStateID, CGEventType};
-use objc2_foundation::{NSDictionary, NSNumber, NSString};
+use objc2_foundation::{NSDictionary, NSNumber, NSObject, NSString};
 use objc2_quartz_core::kCAGravityResize;
 use std::cell::RefCell;
 use std::ffi::{CString, c_void};
 use std::time::{Duration, Instant};
+
+define_class!(
+    /// A screen saver window: it takes the keyboard, so the key that closes the screen saver doesn't reach
+    /// a skin or full mode underneath.
+    #[unsafe(super(NSWindow, NSResponder, NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "WebSkinSaverWindow"]
+    struct SaverPanel;
+
+    impl SaverPanel {
+        #[unsafe(method(canBecomeKeyWindow))]
+        fn can_become_key(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, _event: &NSEvent) {}
+    }
+);
 
 pub const IDLE_CHOICES: [u32; 8] = [1, 2, 3, 5, 10, 15, 20, 30];
 pub const CHANGE_CHOICES: [u32; 5] = [15, 30, 60, 120, 300];
@@ -204,9 +223,10 @@ fn name_of((effect, preset): (usize, usize)) -> String {
 
 fn saver_window(mtm: MainThreadMarker, screen: &NSScreen) -> SaverWindow {
     let frame = screen.frame();
-    let window: Retained<NSWindow> = unsafe {
-        msg_send![NSWindow::alloc(mtm), initWithContentRect: frame, styleMask: NSWindowStyleMask::Borderless, backing: NSBackingStoreType::Buffered, defer: false]
+    let panel: Retained<SaverPanel> = unsafe {
+        msg_send![SaverPanel::alloc(mtm), initWithContentRect: frame, styleMask: NSWindowStyleMask::Borderless, backing: NSBackingStoreType::Buffered, defer: false]
     };
+    let window: Retained<NSWindow> = Retained::into_super(panel);
     unsafe { window.setReleasedWhenClosed(false) };
     window.setLevel(NSScreenSaverWindowLevel);
     window.setBackgroundColor(Some(&NSColor::blackColor()));
@@ -270,7 +290,7 @@ pub fn start(manual: bool) {
     }
     if let Some(first) = windows.first() {
         NSApplication::sharedApplication(mtm).activate();
-        first.window.makeKeyWindow();
+        first.window.makeKeyAndOrderFront(None);
     }
     NSCursor::hide();
     let now = Instant::now();
