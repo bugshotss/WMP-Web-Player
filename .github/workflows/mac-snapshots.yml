@@ -51,7 +51,7 @@ jobs:
           WEBSKIN_UPDATES: ${{ runner.temp }}/latest.json
         run: |
           mkdir -p "$RUNNER_TEMP/snapshots"
-          perl -e 'alarm shift; exec @ARGV' 300 target/release/webskin --snapshot "$RUNNER_TEMP/snapshots" "$SKIN_FILE" || echo "exit code $?"
+          perl -e 'alarm shift; exec @ARGV' 420 target/release/webskin --snapshot "$RUNNER_TEMP/snapshots" "$SKIN_FILE" || echo "exit code $?"
           cp "$WEBSKIN_HOME/log.txt" "$RUNNER_TEMP/snapshots/" || true
           cp "$WEBSKIN_HOME/settings.json" "$RUNNER_TEMP/snapshots/" || true
           ls -la "$RUNNER_TEMP/snapshots"

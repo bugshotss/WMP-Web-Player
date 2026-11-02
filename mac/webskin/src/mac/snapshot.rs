@@ -26,6 +26,11 @@ thread_local! {
     static RUN: RefCell<Option<Run>> = const { RefCell::new(None) };
 }
 
+/// A snapshot run is under way (dialogs go to the log instead).
+pub fn active() -> bool {
+    RUN.with(|r| r.borrow().is_some())
+}
+
 /// Called from main before the app runs.
 pub fn configure(out: PathBuf, skin: Option<PathBuf>) {
     let _ = std::fs::create_dir_all(&out);

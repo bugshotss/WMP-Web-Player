@@ -84,7 +84,15 @@ fn fetch(url: &str, dest: &Path, bytes: &AtomicU64, cancel: &AtomicBool, check: 
     part.push(".part");
     let part = PathBuf::from(part);
     let result = (|| {
-        let mut child: Child = curl().arg("--output").arg(&part).arg(url).stderr(Stdio::piped()).spawn().map_err(|e| format!("curl: {e}"))?;
+        let mut child: Child = curl()
+            .arg("--output")
+            .arg(&part)
+            .args(["--write-out", "%{http_code} %{content_type} %{url_effective}"])
+            .arg(url)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("curl: {e}"))?;
         loop {
             if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
                 if !status.success() {
@@ -105,7 +113,16 @@ fn fetch(url: &str, dest: &Path, bytes: &AtomicU64, cancel: &AtomicBool, check: 
             std::thread::sleep(Duration::from_millis(100));
         }
         bytes.store(std::fs::metadata(&part).map_or(0, |m| m.len()), Ordering::Relaxed);
-        check(&part)?;
+        if let Err(e) = check(&part) {
+            // Say what came instead (an error page, a redirect), for the log.
+            let mut answer = String::new();
+            if let Some(mut s) = child.stdout.take() {
+                let _ = std::io::Read::read_to_string(&mut s, &mut answer);
+            }
+            let start: String = std::fs::read(&part).map(|b| String::from_utf8_lossy(&b[..b.len().min(80)]).into_owned()).unwrap_or_default();
+            crate::log(&format!("{url}: {e} (got {answer}: {start:?})"));
+            return Err(e);
+        }
         std::fs::rename(&part, dest).map_err(|e| e.to_string())?;
         Ok(dest.to_path_buf())
     })();

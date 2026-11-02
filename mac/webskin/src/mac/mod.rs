@@ -613,6 +613,11 @@ pub(crate) fn open_url(url: &str) {
 }
 
 pub(crate) fn message_box(title: &str, text: &str) {
+    // An unattended snapshot run can't answer a dialog: it goes to the log.
+    if snapshot::active() {
+        crate::log(&format!("message: {title}: {text}"));
+        return;
+    }
     let alert = NSAlert::new(mtm());
     alert.setMessageText(&NSString::from_str(title));
     alert.setInformativeText(&NSString::from_str(text));
