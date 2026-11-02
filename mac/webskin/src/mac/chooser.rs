@@ -503,6 +503,7 @@ impl Chooser {
             (true, true, _) => "Loading the archive.org collection…".to_string(),
             (true, false, Some(e)) => format!("archive.org can't be reached: {e}"),
             (true, false, None) => format!("{} skins on archive.org · {} installed", all.len(), all.iter().filter(|e| e.installed).count()),
+            (false, _, _) if all.len() == 1 => "1 skin installed".to_string(),
             (false, _, _) => format!("{} skins installed", all.len()),
         };
         ui::set_text(&self.count, &count_text);
@@ -547,6 +548,7 @@ impl Chooser {
             ui::set_text(&self.status, if online { "" } else { "No skins yet: open Get more skins, or Add Skins…" });
             self.apply.setEnabled(false);
             self.download.setEnabled(false);
+            self.download.setTitle(&NSString::from_str("Download and Apply"));
             return;
         };
         ui::set_text(&self.name, &e.name);
@@ -651,7 +653,10 @@ impl Chooser {
             let mut s = self.state.borrow_mut();
             s.listing = None;
             match result {
-                Ok(list) => s.online_list = list,
+                Ok(list) => {
+                    crate::log(&format!("archive.org lists {} skins", list.len()));
+                    s.online_list = list;
+                }
                 Err(e) => {
                     crate::log(&format!("archive.org listing failed: {e}"));
                     s.online_error = Some(e);
@@ -816,4 +821,24 @@ const NSHEIGHT: objc2_app_kit::NSAutoresizingMaskOptions = objc2_app_kit::NSAuto
 /// For the snapshot hook: the selected skin's preview has arrived.
 pub fn preview_ready() -> bool {
     get().is_some_and(|c| c.preview.image().is_some())
+}
+
+/// For the snapshot hook: selects the first skin that isn't installed yet and downloads and applies it.
+pub fn download_first() -> Option<String> {
+    let c = get()?;
+    let row = {
+        let entries = c.entries();
+        let s = c.state.borrow();
+        s.rows.iter().position(|r| matches!(r, Row::Skin(i) if !entries[*i].installed))?
+    };
+    c.table.selectRowIndexes_byExtendingSelection(&NSIndexSet::indexSetWithIndex(row), false);
+    c.selection_changed();
+    let name = c.selected_entry().map(|e| e.file);
+    c.apply_selected();
+    name
+}
+
+/// For the snapshot hook: the archive.org list has arrived.
+pub fn online_loaded() -> bool {
+    get().is_some_and(|c| !c.state.borrow().online_list.is_empty())
 }

@@ -39,9 +39,14 @@ fn info_string(key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// This copy's version: the app bundle's, or the crate's when run with cargo.
+/// This copy's version: the app bundle's, or the crate's when run with cargo (WEBSKIN_VERSION, a test hook,
+/// stands in for either).
 pub fn version() -> String {
-    info_string("CFBundleShortVersionString").unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
+    std::env::var("WEBSKIN_VERSION")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| info_string("CFBundleShortVersionString"))
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
 }
 
 /// The releases feed to check: WEBSKIN_UPDATES (a test hook), or the repository the build came from.

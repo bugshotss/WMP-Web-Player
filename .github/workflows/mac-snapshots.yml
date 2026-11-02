@@ -40,9 +40,12 @@ jobs:
         env:
           WEBSKIN_HOME: ${{ runner.temp }}/home
           WEBSKIN_TESTSIGNAL: '1'
+          # Pretend to be an old version, so the update check finds the latest release.
+          WEBSKIN_VERSION: 0.2.0
+          WEBSKIN_UPDATES: https://api.github.com/repos/${{ github.repository }}/releases/latest
         run: |
           mkdir -p "$RUNNER_TEMP/snapshots"
-          perl -e 'alarm shift; exec @ARGV' 150 target/release/webskin --snapshot "$RUNNER_TEMP/snapshots" "$SKIN_FILE" || echo "exit code $?"
+          perl -e 'alarm shift; exec @ARGV' 180 target/release/webskin --snapshot "$RUNNER_TEMP/snapshots" "$SKIN_FILE" || echo "exit code $?"
           cp "$WEBSKIN_HOME/log.txt" "$RUNNER_TEMP/snapshots/" || true
           cp "$WEBSKIN_HOME/settings.json" "$RUNNER_TEMP/snapshots/" || true
           ls -la "$RUNNER_TEMP/snapshots"

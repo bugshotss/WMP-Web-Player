@@ -54,6 +54,22 @@ define_class!(
             }
         }
 
+        #[unsafe(method(acceptsFirstResponder))]
+        fn accepts_first_responder(&self) -> bool {
+            true
+        }
+
+        /// Esc leaves full screen, as in the Windows app.
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &NSEvent) {
+            let full_screen = self.window().is_some_and(|w| w.styleMask().contains(NSWindowStyleMask::FullScreen));
+            if event.keyCode() == 53 && full_screen {
+                toggle_full_screen();
+            } else {
+                let _: () = unsafe { msg_send![super(self), keyDown: event] };
+            }
+        }
+
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
             let p = self.convertPoint_fromView(event.locationInWindow(), None);
@@ -206,12 +222,12 @@ fn build(mtm: MainThreadMarker) -> Rc<FullMode> {
     hint.setFont(Some(&ui::font(15.0, false)));
     ui::place(&hint, &now_panel, rect((w - 480.0) / 2.0, main_h / 2.0 - 30.0, 480.0, 60.0), Pin::CENTER);
 
-    let controls = ui::flipped(mtm, rect(0.0, 0.0, 452.0, 34.0), None);
+    let controls = ui::flipped(mtm, rect(0.0, 0.0, 462.0, 34.0), None);
     if let Some(layer) = controls.layer() {
         layer.setBackgroundColor(Some(&objc2_core_graphics::CGColor::new_srgb(0.06, 0.08, 0.1, 0.6)));
         layer.setCornerRadius(5.0);
     }
-    ui::place(&controls, &now_panel, rect(w - 452.0 - 12.0, main_h - 34.0 - 12.0, 452.0, 34.0), Pin::and(Pin::RIGHT, Pin::FAR_Y));
+    ui::place(&controls, &now_panel, rect(w - 462.0 - 12.0, main_h - 34.0 - 12.0, 462.0, 34.0), Pin::and(Pin::RIGHT, Pin::FAR_Y));
     let prev_effect = ui::symbol_button(mtm, "chevron.left", "Previous visualization", || {
         let (effect, _) = global_vis();
         super::choose_vis((effect + ALL.len() - 1) % ALL.len(), 0);
@@ -231,7 +247,7 @@ fn build(mtm: MainThreadMarker) -> Rc<FullMode> {
     });
     ui::place(&next_preset, &controls, rect(368.0, 5.0, 24.0, 24.0), Pin::NEAR_Y);
     let colors = ui::symbol_button(mtm, "paintpalette", "Colors", || {});
-    ui::place(&colors, &controls, rect(400.0, 5.0, 26.0, 24.0), Pin::NEAR_Y);
+    ui::place(&colors, &controls, rect(400.0, 5.0, 24.0, 24.0), Pin::NEAR_Y);
     let cb = colors.clone();
     ui::on_action(&colors, move || {
         let (item, action) = super::colors_entry();
@@ -240,7 +256,7 @@ fn build(mtm: MainThreadMarker) -> Rc<FullMode> {
         }
     });
     let saver_btn = ui::symbol_button(mtm, "sparkles.tv", "Screen saver", || {});
-    ui::place(&saver_btn, &controls, rect(426.0, 5.0, 24.0, 24.0), Pin::NEAR_Y);
+    ui::place(&saver_btn, &controls, rect(432.0, 5.0, 24.0, 24.0), Pin::NEAR_Y);
     let sb = saver_btn.clone();
     ui::on_action(&saver_btn, move || {
         let (item, action) = super::saver::menu_entry();
@@ -355,6 +371,8 @@ impl FullMode {
         self.chooser.view.setHidden(!skins);
         if skins {
             self.chooser.shown(tab == Tab::OnlineSkins);
+        } else {
+            self.window.makeFirstResponder(Some(&self.vis));
         }
     }
 

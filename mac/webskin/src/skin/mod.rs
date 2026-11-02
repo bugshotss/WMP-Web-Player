@@ -1082,6 +1082,60 @@ mod tests {
         assert!(shared.errors.borrow().is_empty(), "{:?}", shared.errors.borrow());
     }
 
+    /// Each skin opens with the visualization last shown in it, which outranks the one it names; a skin
+    /// never used before shows its own, and whatever shows in it is remembered for next time.
+    #[test]
+    fn each_skin_remembers_its_visualization() {
+        let dir = temp_dir("vismemory");
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="60" height="40">
+                 <EFFECTS id="vis" width="60" height="40" effectType="Battery" preset="2"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let open = |settings: Settings| {
+            let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), settings, Rc::new(NullHost), false).unwrap();
+            let v = shared.load_main_view_offscreen();
+            let e = shared.read(|s| s.view(v).by_id["vis"]);
+            (shared, v, e)
+        };
+
+        // First time: the skin's own choice, and the player-wide one starts at WMP's default.
+        let (shared, v, e) = open(Settings::scratch());
+        assert_eq!(shared.read(|s| s.shown_vis(v, e)), (1, 2));
+        assert_eq!(shared.read(|s| s.global_vis()), (0, 0));
+        assert!(shared.run_action(&AppAction::Visualization(2, 1)));
+        let remembered = shared.read(|s| s.settings.skin_effects.get("t.wms").cloned());
+        assert_eq!(remembered, Some(crate::settings::SkinEffect { effect: "AlbumArt".into(), preset: 1 }));
+
+        // Next time: the remembered one, even though the skin names Battery, and even when its script names
+        // another as it switches the (hidden) visualizer on.
+        let mut settings = Settings::scratch();
+        settings.skin_effects.insert("t.wms".into(), remembered.unwrap());
+        let (shared, v, e) = open(settings);
+        assert_eq!(shared.read(|s| s.shown_vis(v, e)), (2, 1));
+        assert_eq!(shared.read(|s| s.global_vis()), (2, 1));
+        shared.script(v).unwrap().execute("vis.currentEffectType = 'Spikes';", "test").unwrap();
+        assert_eq!(shared.read(|s| s.shown_vis(v, e)), (2, 1), "the remembered visualization outranks the skin's");
+    }
+
+    #[test]
+    fn colours_apply_per_visualization_and_the_menu_offers_them() {
+        let (shared, _, _) = load(&temp_dir("viscolors"));
+        assert!(shared.run_action(&AppAction::VisColors("palette:Fire".into())));
+        assert_eq!(shared.read(|s| s.vis_colors(0)), "palette:Fire");
+        assert_eq!(shared.read(|s| s.vis_colors(1)), "");
+        let (items, actions) = shared.read(|s| s.app_menu("context", vec![]));
+        let colors = items.iter().position(|i| i.label == "Colors for Bars and Waves").expect("a colours submenu");
+        assert!(items[colors].submenu.iter().any(|i| i.label == "Fire" && i.checked));
+        assert!(matches!(&actions[colors], AppAction::Submenu(_)));
+        let play = items.iter().position(|i| i.label == "Play").unwrap();
+        assert!(items[play].submenu.iter().any(|i| i.label == "Shuffle"));
+        assert!(shared.run_action(&AppAction::VisColors(String::new())));
+        assert_eq!(shared.read(|s| s.vis_colors(0)), "");
+    }
+
     /// A VIEW's colour lies under the children behind it, which show through its image's holes and
     /// its clippingColor (Radio, Yahoo); clippingColor with nothing behind still cuts the window.
     #[test]

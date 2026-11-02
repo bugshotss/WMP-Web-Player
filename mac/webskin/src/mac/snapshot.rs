@@ -100,34 +100,43 @@ fn save_window(window: &NSWindow, name: &str) {
 fn steps() -> Vec<(f64, fn())> {
     vec![
         (0.5, || run_command("fullmode")),
-        (4.0, || {
+        (5.0, || {
             if let Some(w) = full::window() {
                 save_window(&w, "full-now-playing");
             }
+            note(&format!("update offered: {:?}", super::updater::available().map(|u| u.version)));
         }),
-        (4.2, || full::select(full::Tab::Skins)),
-        (9.0, || {
+        (5.2, || full::select(full::Tab::Skins)),
+        (10.0, || {
             if let Some(w) = full::window() {
                 save_window(&w, "full-skin-chooser");
             }
             note(&format!("chooser preview shown: {}", super::chooser::preview_ready()));
         }),
-        (9.2, || full::select(full::Tab::OnlineSkins)),
-        (20.0, || {
+        (10.2, || full::select(full::Tab::OnlineSkins)),
+        (40.0, || {
             if let Some(w) = full::window() {
                 save_window(&w, "full-get-more-skins");
             }
-            note(&format!("online preview shown: {}", super::chooser::preview_ready()));
+            note(&format!("archive.org list loaded: {}, preview shown: {}", super::chooser::online_loaded(), super::chooser::preview_ready()));
         }),
-        (20.2, || run_command("ontop")),
-        (20.6, || {
+        (40.2, || note(&format!("downloading and applying: {:?}", super::chooser::download_first()))),
+        (55.0, || {
+            note(&format!("after the download: mode {:?}, skin windows {}", super::mode(), super::skin_window_list().len()));
+            for (v, w) in super::skin_window_list() {
+                save_window(&w, &format!("downloaded-skin-view-{v}"));
+            }
+        }),
+        (55.5, || run_command("fullmode")),
+        (56.0, || run_command("ontop")),
+        (56.5, || {
             if let Some(w) = full::window() {
                 note(&format!("always on top: full mode level {}", w.level()));
             }
             run_command("ontop");
         }),
-        (21.0, || run_command("menubarmode")),
-        (22.0, || {
+        (57.0, || run_command("menubarmode")),
+        (58.0, || {
             note(&format!("menu-bar player shown: {}, full mode shown: {}", widget::is_shown(), full::is_shown()));
             if let Some(v) = widget::header_view() {
                 save_view(&v, "menubar-player-menu");
@@ -136,26 +145,28 @@ fn steps() -> Vec<(f64, fn())> {
                 let _ = out_dir().map(|d| std::fs::write(d.join("menubar-item.tiff"), img));
             }
         }),
-        (22.2, || saver::start(true)),
-        (26.0, || {
+        (58.2, || saver::start(true)),
+        (62.0, || {
             if let Some(w) = saver::first_window() {
                 save_window(&w, "screen-saver");
             }
             saver::stop(false);
         }),
-        (26.5, || {
+        (62.5, || {
             let skin = RUN.with(|r| r.borrow().as_ref().and_then(|r| r.skin.clone()));
             if let Some(path) = skin {
                 super::open_skin_now(&path);
             }
         }),
-        (30.0, || {
+        (63.0, || run_command("ontop")),
+        (66.0, || {
             for (v, w) in super::skin_window_list() {
                 save_window(&w, &format!("skin-view-{v}"));
             }
             note(&format!("mode {:?}, global visualization {:?}", super::mode(), super::global_vis()));
+            run_command("ontop");
         }),
-        (30.5, finish),
+        (66.5, finish),
     ]
 }
 
