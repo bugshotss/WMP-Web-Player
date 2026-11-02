@@ -73,6 +73,8 @@ song fading in. [More](#screen-saver)
    **WebSkin Player** Start menu shortcut.
 3. Start playing something in the browser. The player picks it up automatically.
 
+On a Mac, download **`WebSkinPlayer-<version>-mac.zip`** from the same release instead: see [Mac](#mac).
+
 Notes:
 - **Windows SmartScreen** may say it "protected your PC", because the installer isn't code-signed. Choose
   **More info → Run anyway**.
@@ -234,7 +236,7 @@ Audio for the visualizers is captured with WASAPI loopback, so they react to eve
 - Log: `%LOCALAPPDATA%\WebSkinPlayer\log.txt`
 - The app itself: `%LOCALAPPDATA%\Programs\WebSkin Player`
 
-## Mac (preview)
+## Mac
 
 A native Mac version lives in `mac/`. It is a Rust port of the skin engine, for macOS 13 or later. The release zip is for Apple
 silicon; Intel Macs can build it from source.
@@ -243,8 +245,8 @@ silicon; Intel Macs can build it from source.
   <img src="docs/images/mac-compact.png" width="420" alt="The Compact skin running on a Mac, showing the paused Spotify track and its position">
 </p>
 
-- **Install:** the Mac version is in beta: download `WebSkinPlayer-<version>-mac.zip` from the newest pre-release on
-  the [releases page](../../releases), unzip it and move **WebSkin Player** to Applications. It isn't notarized, so
+- **Install:** download `WebSkinPlayer-<version>-mac.zip` from the [latest release](../../releases/latest), unzip it
+  and move **WebSkin Player** to Applications. It isn't notarized, so
   macOS blocks the first launch: open it once, then go to **System Settings > Privacy & Security** and click
   **Open Anyway**. Then pick a skin from the **Skins** menu, open a `.wmz` file, or pick one when the app asks.
 - **Skins:** the **Skins** menu lists the skins in `~/Library/Application Support/WebSkin Player/Skins`, under their
