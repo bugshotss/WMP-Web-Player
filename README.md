@@ -73,7 +73,8 @@ song fading in. [More](#screen-saver)
    **WebSkin Player** Start menu shortcut.
 3. Start playing something in the browser. The player picks it up automatically.
 
-On a Mac, download **`WebSkinPlayer-<version>-mac.zip`** from the same release instead: see [Mac](#mac).
+On a Mac, download **`WebSkinPlayer-<version>-mac.zip`** from the same release instead, and see [Mac](#mac) for
+opening it the first time.
 
 Notes:
 - **Windows SmartScreen** may say it "protected your PC", because the installer isn't code-signed. Choose
@@ -245,10 +246,19 @@ silicon; Intel Macs can build it from source.
   <img src="docs/images/mac-compact.png" width="420" alt="The Compact skin running on a Mac, showing the paused Spotify track and its position">
 </p>
 
-- **Install:** download `WebSkinPlayer-<version>-mac.zip` from the [latest release](../../releases/latest), unzip it
-  and move **WebSkin Player** to Applications. It isn't notarized, so
-  macOS blocks the first launch: open it once, then go to **System Settings > Privacy & Security** and click
-  **Open Anyway**. A new install opens the **Skin Chooser** on **Get more skins**.
+- **Install:** download `WebSkinPlayer-<version>-mac.zip` from the [latest release](../../releases/latest) (betas are
+  on the [Releases](../../releases) page), unzip it and move **WebSkin Player** to Applications. A new install opens
+  the **Skin Chooser** on **Get more skins**.
+- **The first time you open it,** macOS says *"Apple could not verify 'WebSkin Player' is free of malware…"*,
+  because the app isn't notarized by Apple (that needs a paid developer account). To open it anyway, once:
+  1. Double-click **WebSkin Player** in Applications. When the warning appears, click **Done** (not Move to Trash).
+  2. Open **System Settings > Privacy & Security** and scroll down to **Security**. Next to *"'WebSkin Player' was
+     blocked to protect your Mac"*, click **Open Anyway**.
+  3. Click **Open Anyway** again in the dialog that follows, and enter your Mac's password (or use Touch ID).
+
+  After that it opens like any other app. (Control-click > Open no longer skips the warning since macOS 15.) If you
+  prefer Terminal, `xattr -dr com.apple.quarantine "/Applications/WebSkin Player.app"` clears the download flag
+  instead. Updates installed from inside the app (**Install Now**) don't ask again.
 - **Modes, as on Windows:** **Full mode** (⌘1) is Now Playing with a large visualizer (double-click or ⌃⌘F for full
   screen, Esc to leave it), the visualization, preset and colour pickers, and a transport bar with seek, shuffle,
   repeat and volume. **Skin mode** (⌘2) is the skin. **Menu Bar Player** (⌘3) tucks the player into the menu bar: the
@@ -322,7 +332,9 @@ git push origin v0.2.0
 ```
 
 The **Build** workflow (`.github/workflows/build.yml`) builds every push and pull request. For a `v*` tag it also
-publishes a GitHub release with the installer and zip attached. Builds made by the workflow know their repository and
+publishes a GitHub release with the installer and zip attached. A release can also be started from the repository's
+**Releases** page: **Draft a new release**, type a new tag such as `v0.4.0` (on `main`), tick **Set as a pre-release**
+for a beta, and publish; the workflow then builds the apps and attaches them to that release. Builds made by the workflow know their repository and
 check it for updates; local builds don't.
 
 ### Developer hooks
