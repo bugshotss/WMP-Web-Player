@@ -16,5 +16,17 @@ fn main() {
         }
     }
     #[cfg(target_os = "macos")]
-    webskin::mac::run(args.into_iter().find(|a| !a.starts_with('-')).map(PathBuf::from));
+    {
+        // --snapshot <out> [skin]: walk through the app's windows and save a picture of each (for CI).
+        let mut skin = args.iter().find(|a| !a.starts_with('-')).map(PathBuf::from);
+        if args.first().map(String::as_str) == Some("--snapshot") {
+            let Some(out) = args.get(1) else {
+                eprintln!("usage: webskin --snapshot <out-folder> [skin]");
+                std::process::exit(2);
+            };
+            webskin::mac::snapshot::configure(PathBuf::from(out), args.get(2).map(PathBuf::from));
+            skin = None;
+        }
+        webskin::mac::run(skin);
+    }
 }

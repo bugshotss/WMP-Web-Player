@@ -83,8 +83,16 @@ jobs:
         run: cargo test
 
       - name: Build the app
+        env:
+          # Builds made here know their repository and check it for updates; CI builds count as older
+          # than the release of the same version.
+          REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then export VERSION="${GITHUB_REF_NAME#v}"; fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            export VERSION="${GITHUB_REF_NAME#v}"
+          else
+            export VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' webskin/Cargo.toml | head -n 1)-ci.$GITHUB_RUN_NUMBER"
+          fi
           ./build-app.sh
 
       - uses: actions/upload-artifact@v5

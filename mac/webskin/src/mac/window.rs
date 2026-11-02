@@ -4,14 +4,11 @@
 use super::current;
 use crate::skin::{AppAction, MouseButton, MouseResult, ViewId};
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
 use objc2::{AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSApplication, NSBackingStoreType, NSColor, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags, NSResponder, NSTrackingArea,
-    NSTrackingAreaOptions, NSView, NSWindow, NSWindowStyleMask,
+    NSApplication, NSBackingStoreType, NSColor, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags, NSFloatingWindowLevel, NSNormalWindowLevel,
+    NSResponder, NSTrackingArea, NSTrackingAreaOptions, NSView, NSWindow, NSWindowStyleMask,
 };
-use objc2_core_foundation::CFRetained;
-use objc2_core_graphics::{CGColorSpace, CGImage, CGImageAlphaInfo, CGImageByteOrderInfo};
 use objc2_foundation::{NSObject, NSPoint, NSRect, NSSize, NSString};
 use objc2_quartz_core::{kCAFilterNearest, kCAGravityTopLeft};
 use std::cell::{Cell, RefCell};
@@ -249,7 +246,7 @@ impl Surface {
                     w.performWindowDragWithEvent(event);
                 }
             }
-            MouseResult::ContextMenu if shared.show_app_menu(v, "context", (x, y)) == Some(AppAction::Quit) => shared.close(),
+            MouseResult::ContextMenu if shared.show_app_menu(v, "context", (x, y)) == Some(AppAction::Quit) => super::push_command("quit"),
             _ => {}
         }
     }
@@ -293,7 +290,8 @@ pub struct ViewWindow {
 }
 
 impl ViewWindow {
-    pub fn open(mtm: MainThreadMarker, view: ViewId, title: &str, left: f64, top: f64, w: f64, h: f64) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn open(mtm: MainThreadMarker, view: ViewId, title: &str, left: f64, top: f64, w: f64, h: f64, on_top: bool, shown: bool) -> Self {
         let rect = NSRect::new(NSPoint::new(left, primary_height(mtm) - top - h), NSSize::new(w.max(1.0), h.max(1.0)));
         let style = NSWindowStyleMask::Borderless | NSWindowStyleMask::Miniaturizable;
         let window: Retained<SkinWindow> = unsafe {
@@ -307,9 +305,27 @@ impl ViewWindow {
         window.setTitle(&NSString::from_str(title));
         let surface = Surface::new(mtm, view, NSRect::new(NSPoint::new(0.0, 0.0), rect.size));
         window.setContentView(Some(&surface));
-        window.makeKeyAndOrderFront(None);
-        window.makeFirstResponder(Some(&surface));
-        ViewWindow { window, surface, placed: Cell::new((left, top)), size: Cell::new((w, h)), shown: RefCell::new(None) }
+        let this = ViewWindow { window, surface, placed: Cell::new((left, top)), size: Cell::new((w, h)), shown: RefCell::new(None) };
+        this.set_on_top(on_top);
+        if shown {
+            this.window.makeKeyAndOrderFront(None);
+        }
+        this.window.makeFirstResponder(Some(&this.surface));
+        this
+    }
+
+    /// Always on Top: above other apps' windows, or among them.
+    pub fn set_on_top(&self, on: bool) {
+        self.window.setLevel(if on { NSFloatingWindowLevel } else { NSNormalWindowLevel });
+    }
+
+    /// Shows or hides the window (the player tucked into the menu bar hides its skin).
+    pub fn set_shown(&self, shown: bool) {
+        if shown {
+            self.window.orderFront(None);
+        } else {
+            self.window.orderOut(None);
+        }
     }
 
     /// Shows a rendered view.
@@ -317,10 +333,9 @@ impl ViewWindow {
         // In the display's own colour space the window server shows the pixels as they are, with
         // no conversion each frame (and skins look as on Windows, which didn't colour-manage).
         let space = self.window.colorSpace().and_then(|s| s.CGColorSpace());
-        let Some(image) = cg_image(&canvas.pixmap, space.as_deref()) else { return };
+        let Some(image) = super::ui::cg_image(&canvas.pixmap, space.as_deref()) else { return };
         if let Some(layer) = self.surface.layer() {
-            let obj: &AnyObject = unsafe { &*CFRetained::as_ptr(&image).as_ptr().cast::<AnyObject>() };
-            unsafe { layer.setContents(Some(obj)) };
+            unsafe { layer.setContents(Some(super::ui::layer_contents(&image))) };
             layer.setContentsScale(f64::from(canvas.scale));
         }
         *self.shown.borrow_mut() = Some(canvas);
@@ -452,24 +467,4 @@ impl ViewWindow {
             super::redraw(view);
         }
     }
-}
-
-/// A CoreGraphics image of a premultiplied RGBA pixmap.
-fn cg_image(pm: &tiny_skia::Pixmap, space: Option<&CGColorSpace>) -> Option<CFRetained<CGImage>> {
-    let device = CGColorSpace::new_device_rgb()?;
-    let space = space.unwrap_or(&device);
-    let info = CGImageByteOrderInfo::Order32Big.0 | CGImageAlphaInfo::PremultipliedLast.0;
-    let mut data = pm.data().to_vec();
-    let ctx = unsafe {
-        objc2_core_graphics::CGBitmapContextCreate(
-            data.as_mut_ptr().cast(),
-            pm.width() as usize,
-            pm.height() as usize,
-            8,
-            pm.width() as usize * 4,
-            Some(space),
-            info,
-        )
-    }?;
-    objc2_core_graphics::CGBitmapContextCreateImage(Some(&ctx))
 }

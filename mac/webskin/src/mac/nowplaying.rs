@@ -9,7 +9,7 @@ use crate::images::Artwork;
 use crate::player::{Command, MediaSnapshot, MediaSource, MediaStatus};
 use base64::Engine;
 use objc2_app_kit::NSRunningApplication;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::{CString, c_void};
 use std::io::BufRead;
@@ -30,14 +30,42 @@ struct Live {
 
 type SendCommandFn = unsafe extern "C" fn(u32, *mut c_void) -> bool;
 type SetElapsedFn = unsafe extern "C" fn(f64);
+type SetModeFn = unsafe extern "C" fn(i32);
+
+/// MediaRemote's command numbers.
+mod command {
+    pub const PLAY: u32 = 0;
+    pub const PAUSE: u32 = 1;
+    pub const TOGGLE_PLAY_PAUSE: u32 = 2;
+    pub const STOP: u32 = 3;
+    pub const NEXT: u32 = 4;
+    pub const PREVIOUS: u32 = 5;
+    pub const ADVANCE_SHUFFLE: u32 = 6;
+    pub const ADVANCE_REPEAT: u32 = 7;
+}
+
+/// MediaRemote's shuffle modes (1 off, 2 albums, 3 tracks) and repeat modes (1 off, 2 the track, 3 the
+/// playlist). WMP's shuffle is tracks and its loop is the playlist.
+const MODE_OFF: i32 = 1;
+const MODE_ON: i32 = 3;
+
+#[derive(Clone, Copy, Default)]
+struct MediaRemote {
+    send_command: Option<SendCommandFn>,
+    set_elapsed: Option<SetElapsedFn>,
+    set_shuffle: Option<SetModeFn>,
+    set_repeat: Option<SetModeFn>,
+}
 
 pub struct NowPlaying {
     live: Arc<Mutex<Live>>,
     helper: RefCell<Option<Child>>,
-    send_command: Option<SendCommandFn>,
-    set_elapsed: Option<SetElapsedFn>,
+    remote: MediaRemote,
     app_names: RefCell<HashMap<i64, String>>,
     artwork: RefCell<Option<(u64, Rc<Artwork>)>>,
+    /// Shuffle and repeat as last set from here, for apps that take the command but don't report the mode.
+    shuffle: Cell<bool>,
+    repeat: Cell<bool>,
 }
 
 /// The helper library: next to the executable (cargo builds) or in the app's Frameworks folder.
@@ -75,14 +103,14 @@ impl NowPlaying {
         if helper.is_none() {
             crate::log("Now Playing helper (libnowplaying_host.dylib) not found; skins won't see what's playing");
         }
-        let (send_command, set_elapsed) = media_remote();
         Rc::new(NowPlaying {
             live,
             helper: RefCell::new(helper),
-            send_command,
-            set_elapsed,
+            remote: media_remote(),
             app_names: RefCell::default(),
             artwork: RefCell::default(),
+            shuffle: Cell::new(false),
+            repeat: Cell::new(false),
         })
     }
 
@@ -103,9 +131,32 @@ impl NowPlaying {
     }
 
     fn send(&self, code: u32) {
-        if let Some(f) = self.send_command {
+        if let Some(f) = self.remote.send_command {
             unsafe { f(code, std::ptr::null_mut()) };
         }
+    }
+
+    /// A shuffle or repeat mode the playing app reports (None when it doesn't).
+    fn mode(&self, key: &str) -> Option<i64> {
+        let l = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        l.info.get(key).and_then(serde_json::Value::as_f64).map(|v| v as i64).filter(|v| *v > 0)
+    }
+
+    /// Sets shuffle or repeat: straight to the mode when MediaRemote can, else by stepping the app's mode
+    /// (which only works out when the mode it reports, or the one last set from here, is known).
+    fn set_mode(&self, on: bool, setter: Option<SetModeFn>, advance: u32, key: &str, remembered: &Cell<bool>) {
+        let was = self.mode(key).map_or(remembered.get(), |m| m > MODE_OFF.into());
+        remembered.set(on);
+        match setter {
+            Some(f) => unsafe { f(if on { MODE_ON } else { MODE_OFF }) },
+            None if was != on => self.send(advance),
+            None => {}
+        }
+    }
+
+    /// Whether shuffle (or repeat) is on: as the app reports it, or as last set from here.
+    fn mode_on(&self, key: &str, remembered: &Cell<bool>) -> bool {
+        self.mode(key).map_or(remembered.get(), |m| m > MODE_OFF.into())
     }
 }
 
@@ -118,18 +169,20 @@ impl Drop for NowPlaying {
     }
 }
 
-fn media_remote() -> (Option<SendCommandFn>, Option<SetElapsedFn>) {
+fn media_remote() -> MediaRemote {
     unsafe {
-        let Ok(path) = CString::new("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote") else { return (None, None) };
+        let Ok(path) = CString::new("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote") else { return MediaRemote::default() };
         let h = libc::dlopen(path.as_ptr(), libc::RTLD_NOW);
         if h.is_null() {
-            return (None, None);
+            return MediaRemote::default();
         }
         let sym = |name: &str| CString::new(name).ok().map(|c| libc::dlsym(h, c.as_ptr())).filter(|p| !p.is_null());
-        (
-            sym("MRMediaRemoteSendCommand").map(|p| std::mem::transmute::<*mut c_void, SendCommandFn>(p)),
-            sym("MRMediaRemoteSetElapsedTime").map(|p| std::mem::transmute::<*mut c_void, SetElapsedFn>(p)),
-        )
+        MediaRemote {
+            send_command: sym("MRMediaRemoteSendCommand").map(|p| std::mem::transmute::<*mut c_void, SendCommandFn>(p)),
+            set_elapsed: sym("MRMediaRemoteSetElapsedTime").map(|p| std::mem::transmute::<*mut c_void, SetElapsedFn>(p)),
+            set_shuffle: sym("MRMediaRemoteSetShuffleMode").map(|p| std::mem::transmute::<*mut c_void, SetModeFn>(p)),
+            set_repeat: sym("MRMediaRemoteSetRepeatMode").map(|p| std::mem::transmute::<*mut c_void, SetModeFn>(p)),
+        }
     }
 }
 
@@ -184,9 +237,13 @@ impl MediaSource for Source {
             duration: info.get("duration").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
             can_next: session,
             can_previous: session,
-            can_seek: session && self.0.set_elapsed.is_some(),
+            can_seek: session && self.0.remote.set_elapsed.is_some(),
+            // Apps that don't do shuffle or repeat ignore the command, as browsers' players did on Windows.
+            can_shuffle: session && self.0.remote.send_command.is_some(),
+            can_repeat: session && self.0.remote.send_command.is_some(),
+            shuffle: session && self.0.mode_on("shuffleMode", &self.0.shuffle),
+            repeat: session && self.0.mode_on("repeatMode", &self.0.repeat),
             artwork_version: version,
-            ..Default::default()
         }
     }
 
@@ -217,25 +274,32 @@ impl MediaSource for Source {
 
     fn command(&self, c: Command) {
         match c {
-            Command::Play => self.0.send(0),
-            Command::Pause => self.0.send(1),
-            Command::TogglePlayPause => self.0.send(2),
-            Command::Stop => self.0.send(3),
-            Command::Next => self.0.send(4),
-            Command::Previous => self.0.send(5),
+            Command::Play => self.0.send(command::PLAY),
+            Command::Pause => self.0.send(command::PAUSE),
+            Command::TogglePlayPause => self.0.send(command::TOGGLE_PLAY_PAUSE),
+            Command::Stop => self.0.send(command::STOP),
+            Command::Next => self.0.send(command::NEXT),
+            Command::Previous => self.0.send(command::PREVIOUS),
             Command::FastForward => self.seek(self.position() + 10.0),
             Command::Rewind => self.seek((self.position() - 10.0).max(0.0)),
         }
     }
 
     fn seek(&self, seconds: f64) {
-        if let Some(f) = self.0.set_elapsed {
+        if let Some(f) = self.0.remote.set_elapsed {
             unsafe { f(seconds) };
         }
     }
 
-    fn set_shuffle(&self, _: bool) {}
-    fn set_repeat(&self, _: bool) {}
+    fn set_shuffle(&self, on: bool) {
+        let np = &self.0;
+        np.set_mode(on, np.remote.set_shuffle, command::ADVANCE_SHUFFLE, "shuffleMode", &np.shuffle);
+    }
+
+    fn set_repeat(&self, on: bool) {
+        let np = &self.0;
+        np.set_mode(on, np.remote.set_repeat, command::ADVANCE_REPEAT, "repeatMode", &np.repeat);
+    }
 
     fn volume(&self) -> f64 {
         volume::get().unwrap_or(0.5)

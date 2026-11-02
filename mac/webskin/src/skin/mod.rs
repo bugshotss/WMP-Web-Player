@@ -39,6 +39,8 @@ pub struct MenuItem {
     pub checked: bool,
     pub separator: bool,
     pub submenu: Vec<MenuItem>,
+    /// A key equivalent for the app's own menus, e.g. "cmd+p" or "opt+cmd+down" (skins' menus have none).
+    pub shortcut: String,
 }
 
 impl MenuItem {
@@ -52,6 +54,11 @@ impl MenuItem {
 
     pub fn submenu(label: &str, items: Vec<MenuItem>) -> Self {
         MenuItem { label: label.into(), enabled: true, submenu: items, ..Default::default() }
+    }
+
+    pub fn with_shortcut(mut self, shortcut: &str) -> Self {
+        self.shortcut = shortcut.into();
+        self
     }
 }
 
@@ -92,6 +99,12 @@ pub trait Host {
     fn skin_closed(&self) {}
     /// "Open" and the skin chooser: pick another skin.
     fn choose_skin(&self) {}
+    /// What the app adds to a skin's right-click menu (full mode, Always on Top, the screen saver, ...).
+    fn menu_extras(&self) -> Vec<(MenuItem, AppAction)> {
+        vec![]
+    }
+    /// One of the app's own commands, chosen from a skin's menu ([`AppAction::Host`]).
+    fn host_action(&self, _command: &str) {}
 }
 
 /// A host that does nothing (skin previews and tests).
@@ -143,6 +156,10 @@ pub struct Skin {
     pub settings: Settings,
     /// WMP's Skin Chooser ran previews without a player object; some skins rely on that.
     pub preview: bool,
+    /// The skin opened with the visualization last shown in it, which outranks the one it names.
+    pub restored_vis: bool,
+    /// Whether this tick's script run keeps the remembered visualization (see `keeps_remembered`).
+    keep_remembered: Option<(Instant, bool)>,
     closed: bool,
     pub history: Vec<TrackInfo>,
     /// Expando properties scripts set on WMP's shared objects (mediacenter's are persisted).
@@ -330,15 +347,21 @@ impl Skin {
         }
     }
 
-    /// The right-click / AUTOMENU menu: transport and app commands.
-    pub fn app_menu(&self, which: &str) -> (Vec<MenuItem>, Vec<AppAction>) {
+    /// The right-click / AUTOMENU menu: transport and app commands. `extras` are the app's own entries
+    /// (full mode, Always on Top, ...), shown above Skin Chooser.
+    pub fn app_menu(&self, which: &str, extras: Vec<(MenuItem, AppAction)>) -> (Vec<MenuItem>, Vec<AppAction>) {
         let pm = &self.player;
         let playing = pm.play_state == crate::player::state::PS_PLAYING;
+        let can_shuffle = pm.media.can_shuffle;
+        let can_repeat = pm.media.can_repeat;
         let play = vec![
             (MenuItem::item(if playing { "Pause" } else { "Play" }, true, false), AppAction::PlayPause),
             (MenuItem::item("Stop", true, false), AppAction::Stop),
             (MenuItem::item("Previous", pm.is_available("previous"), false), AppAction::Previous),
             (MenuItem::item("Next", pm.is_available("next"), false), AppAction::Next),
+            (MenuItem::separator(), AppAction::None),
+            (MenuItem::item("Shuffle", can_shuffle, pm.shuffle()), AppAction::Shuffle),
+            (MenuItem::item("Repeat", can_repeat, pm.repeat()), AppAction::Repeat),
             (MenuItem::separator(), AppAction::None),
             (MenuItem::item("Mute", true, pm.mute()), AppAction::Mute),
             (MenuItem::item("Volume Up", true, false), AppAction::VolumeUp),
@@ -364,6 +387,7 @@ impl Skin {
                 (MenuItem::submenu(d.title, items), AppAction::Submenu(actions))
             })
             .unzip();
+        let (color_items, color_actions) = colors_menu(&self.vis_colors(shown)).into_iter().unzip();
         let flat = |list: Vec<(MenuItem, AppAction)>| list.into_iter().unzip();
         match which.to_lowercase().as_str() {
             "open" => flat(open),
@@ -372,27 +396,57 @@ impl Skin {
                 // Submenus report their choice as a path; the actions list is flattened in order.
                 let (open_items, open_actions): (Vec<_>, Vec<_>) = open.into_iter().unzip();
                 let (play_items, play_actions): (Vec<_>, Vec<_>) = play.into_iter().unzip();
-                let items = vec![
+                let mut items = vec![
                     MenuItem::submenu("Open", open_items),
                     MenuItem::submenu("Play", play_items),
                     MenuItem::submenu("Visualizations", vis_items),
+                    MenuItem::submenu(&format!("Colors for {}", crate::vis::ALL[shown].title), color_items),
                     MenuItem::separator(),
-                    MenuItem::item("Skin Chooser…", true, false),
-                    MenuItem::separator(),
-                    MenuItem::item("Quit WebSkin Player", true, false),
                 ];
                 let mut actions = vec![
                     AppAction::Submenu(open_actions),
                     AppAction::Submenu(play_actions),
                     AppAction::Submenu(vis_actions),
+                    AppAction::Submenu(color_actions),
                     AppAction::None,
-                    AppAction::ChooseSkin,
                 ];
-                actions.extend([AppAction::None, AppAction::Quit]);
+                let had_extras = !extras.is_empty();
+                for (item, action) in extras {
+                    items.push(item);
+                    actions.push(action);
+                }
+                if had_extras {
+                    items.push(MenuItem::separator());
+                    actions.push(AppAction::None);
+                }
+                items.extend([
+                    MenuItem::item("Skin Chooser…", true, false),
+                    MenuItem::separator(),
+                    MenuItem::item("Quit WebSkin Player", true, false),
+                ]);
+                actions.extend([AppAction::Host("chooser".into()), AppAction::None, AppAction::Quit]);
                 (items, actions)
             }
         }
     }
+}
+
+/// The colour choices for a visualization showing `current` ("" = its own colours): Original Colors, the
+/// palettes, Shift Colors and Custom Color, as in the Windows app.
+pub fn colors_menu(current: &str) -> Vec<(MenuItem, AppAction)> {
+    use crate::vis::colors::{HUE_SHIFTS, PALETTES};
+    let is = |spec: &str| current.eq_ignore_ascii_case(spec);
+    let item = |label: &str, spec: String| (MenuItem::item(label, true, is(&spec)), AppAction::VisColors(spec));
+    let mut list = vec![item("Original Colors", String::new()), (MenuItem::separator(), AppAction::None)];
+    list.extend(PALETTES.iter().map(|(name, _)| item(name, format!("palette:{name}"))));
+    list.push((MenuItem::separator(), AppAction::None));
+    let (shift_items, shift_actions): (Vec<_>, Vec<_>) = HUE_SHIFTS.iter().map(|d| item(&format!("By {d}°"), format!("hue:{d}"))).unzip();
+    let shifted = current.to_lowercase().starts_with("hue:");
+    list.push((MenuItem { checked: shifted, ..MenuItem::submenu("Shift Colors", shift_items) }, AppAction::Submenu(shift_actions)));
+    let custom = current.to_lowercase().starts_with("custom:").then(|| current[7..].to_string());
+    let label = custom.as_ref().map_or_else(|| "Custom Color…".to_string(), |c| format!("Custom Color ({c})…"));
+    list.push((MenuItem::item(&label, true, custom.is_some()), AppAction::Host("colors:custom".into())));
+    list
 }
 
 /// What a menu entry of [`Skin::app_menu`] does.
@@ -411,6 +465,12 @@ pub enum AppAction {
     OpenUrl(&'static str),
     /// A visualization and preset, by index into `vis::ALL`.
     Visualization(usize, usize),
+    Shuffle,
+    Repeat,
+    /// Colours for the visualization showing ("" = its own), a [`crate::vis::colors`] spec.
+    VisColors(String),
+    /// One of the app's own commands, run by [`Host::host_action`].
+    Host(String),
     Quit,
 }
 
@@ -437,7 +497,7 @@ impl std::error::Error for LoadError {}
 
 impl Shared {
     /// Loads a skin (.wmz or .wms). Views open with [`Shared::open_main_view`].
-    pub fn load(path: &Path, source: Box<dyn MediaSource>, settings: Settings, host: Rc<dyn Host>, preview: bool) -> Result<Rc<Self>, LoadError> {
+    pub fn load(path: &Path, source: Box<dyn MediaSource>, mut settings: Settings, host: Rc<dyn Host>, preview: bool) -> Result<Rc<Self>, LoadError> {
         let package = Rc::new(SkinPackage::open(path).map_err(|e| LoadError(e.0))?);
         let text = package.read_text(&package.definition).ok_or_else(|| LoadError("The skin definition can't be read.".into()))?;
         let root = wms::parse(&text);
@@ -448,6 +508,15 @@ impl Shared {
         }
         let has_effects = theme.descendants().iter().any(|n| matches!(n.tag.as_str(), "EFFECTS" | "WMPEFFECTS"));
         let key = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+        // The skin starts with the visualization last shown in it; one never used before starts with WMP's
+        // default (Bars) unless it names its own.
+        let remembered = settings.skin_effects.get(&key).and_then(|e| crate::vis::find(&e.effect).map(|i| (i, e.preset)));
+        if !preview {
+            let (effect, preset) = remembered.unwrap_or((0, 0));
+            settings.vis_effect = crate::vis::ALL[effect].id.to_string();
+            settings.vis_preset = preset;
+        }
+        let restored_vis = !preview && remembered.is_some();
         let mut expandos: HashMap<ObjRef, HashMap<String, Value>> = HashMap::new();
         expandos.insert(ObjRef::MediaCenter, settings.media_center.iter().map(|(k, v)| (k.to_lowercase(), objects::restore(v))).collect());
         let skin = Skin {
@@ -465,6 +534,8 @@ impl Shared {
             player: PlayerModel::new(source),
             settings,
             preview,
+            restored_vis,
+            keep_remembered: None,
             closed: false,
             history: vec![],
             expandos,
@@ -509,6 +580,16 @@ impl Shared {
     /// Read-only access (rendering, hit testing). Must not be called from inside [`Shared::with`].
     pub fn read<R>(&self, f: impl FnOnce(&Skin) -> R) -> R {
         f(&self.skin.borrow())
+    }
+
+    /// [`Shared::read`], or None while the skin is busy (the app reading its settings from a skin callback).
+    pub fn try_read<R>(&self, f: impl FnOnce(&Skin) -> R) -> Option<R> {
+        self.skin.try_borrow().ok().map(|s| f(&s))
+    }
+
+    /// Whether the skin can be changed now (it isn't in the middle of running).
+    pub fn is_idle(&self) -> bool {
+        self.skin.try_borrow_mut().is_ok()
     }
 
     fn script(&self, view: ViewId) -> Option<Rc<ScriptHost>> {
@@ -777,6 +858,13 @@ impl Shared {
             AppAction::ChooseSkin => self.host.choose_skin(),
             AppAction::OpenUrl(url) => self.host.open_url(url),
             AppAction::Visualization(effect, preset) => self.with(|s| s.choose_vis(*effect, *preset)),
+            AppAction::Shuffle => self.player(|p| p.set_shuffle(!p.shuffle())),
+            AppAction::Repeat => self.player(|p| p.set_repeat(!p.repeat())),
+            AppAction::VisColors(spec) => self.with(|s| {
+                let (effect, _) = s.global_vis();
+                s.set_vis_colors(effect, spec);
+            }),
+            AppAction::Host(command) => self.host.host_action(command),
             AppAction::Quit => return false,
             AppAction::None | AppAction::Submenu(_) => {}
         }
@@ -804,7 +892,8 @@ impl Shared {
 
     /// Shows the app menu for `view` at view coordinates and runs the choice.
     pub fn show_app_menu(&self, view: ViewId, which: &str, at: (f64, f64)) -> Option<AppAction> {
-        let (items, actions) = self.read(|s| s.app_menu(which));
+        let extras = if which.eq_ignore_ascii_case("open") || which.eq_ignore_ascii_case("play") { vec![] } else { self.host.menu_extras() };
+        let (items, actions) = self.read(|s| s.app_menu(which, extras));
         let path = self.host.show_menu(view, &items, at)?;
         let mut list = &actions;
         let mut chosen = None;
@@ -994,6 +1083,61 @@ mod tests {
         assert_eq!(black.pixmap.pixel(30, 20).map(|p| (p.red(), p.green(), p.blue())), Some((0, 0, 0)));
         assert_ne!(drawn.pixmap.pixel(30, 20).map(|p| (p.red(), p.green(), p.blue())), Some((0, 0, 0)), "Album Art's disc is drawn");
         assert!(shared.errors.borrow().is_empty(), "{:?}", shared.errors.borrow());
+    }
+
+    /// Each skin opens with the visualization last shown in it, which outranks the one it names; a skin
+    /// never used before shows its own, and whatever shows in it is remembered for next time.
+    #[test]
+    fn each_skin_remembers_its_visualization() {
+        let dir = temp_dir("vismemory");
+        std::fs::write(
+            dir.join("t.wms"),
+            r##"<THEME><VIEW id="Main" width="60" height="40">
+                 <EFFECTS id="vis" width="60" height="40" effectType="Battery" preset="2"/>
+               </VIEW></THEME>"##,
+        )
+        .unwrap();
+        let open = |settings: Settings| {
+            let shared = Shared::load(&dir.join("t.wms"), Box::new(crate::player::NoMedia), settings, Rc::new(NullHost), false).unwrap();
+            let v = shared.load_main_view_offscreen();
+            let e = shared.read(|s| s.view(v).by_id["vis"]);
+            (shared, v, e)
+        };
+
+        // First time: the skin's own choice (effect and preset together), which it then remembers.
+        let (shared, v, e) = open(Settings::scratch());
+        assert_eq!(shared.read(|s| s.shown_vis(v, e)), (1, 2));
+        let first = shared.read(|s| s.settings.skin_effects.get("t.wms").cloned());
+        assert_eq!(first, Some(crate::settings::SkinEffect { effect: "Battery".into(), preset: 2 }));
+        assert!(shared.run_action(&AppAction::Visualization(2, 1)));
+        let remembered = shared.read(|s| s.settings.skin_effects.get("t.wms").cloned());
+        assert_eq!(remembered, Some(crate::settings::SkinEffect { effect: "AlbumArt".into(), preset: 1 }));
+
+        // Next time: the remembered one, even though the skin names Battery, and even when its script names
+        // another as it switches the (hidden) visualizer on.
+        let mut settings = Settings::scratch();
+        settings.skin_effects.insert("t.wms".into(), remembered.unwrap());
+        let (shared, v, e) = open(settings);
+        assert_eq!(shared.read(|s| s.shown_vis(v, e)), (2, 1));
+        assert_eq!(shared.read(|s| s.global_vis()), (2, 1));
+        shared.script(v).unwrap().execute("vis.currentEffectType = 'Spikes';", "test").unwrap();
+        assert_eq!(shared.read(|s| s.shown_vis(v, e)), (2, 1), "the remembered visualization outranks the skin's");
+    }
+
+    #[test]
+    fn colours_apply_per_visualization_and_the_menu_offers_them() {
+        let (shared, _, _) = load(&temp_dir("viscolors"));
+        assert!(shared.run_action(&AppAction::VisColors("palette:Fire".into())));
+        assert_eq!(shared.read(|s| s.vis_colors(0)), "palette:Fire");
+        assert_eq!(shared.read(|s| s.vis_colors(1)), "");
+        let (items, actions) = shared.read(|s| s.app_menu("context", vec![]));
+        let colors = items.iter().position(|i| i.label == "Colors for Bars and Waves").expect("a colours submenu");
+        assert!(items[colors].submenu.iter().any(|i| i.label == "Fire" && i.checked));
+        assert!(matches!(&actions[colors], AppAction::Submenu(_)));
+        let play = items.iter().position(|i| i.label == "Play").unwrap();
+        assert!(items[play].submenu.iter().any(|i| i.label == "Shuffle"));
+        assert!(shared.run_action(&AppAction::VisColors(String::new())));
+        assert_eq!(shared.read(|s| s.vis_colors(0)), "");
     }
 
     /// A VIEW's colour lies under the children behind it, which show through its image's holes and

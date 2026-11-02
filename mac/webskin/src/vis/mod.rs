@@ -4,6 +4,7 @@
 mod album_art;
 mod bars;
 mod battery;
+pub mod colors;
 mod draw;
 mod frame;
 
@@ -112,6 +113,12 @@ pub struct Renderer {
     vis: Box<dyn Visualization>,
     buffer: PixelBuffer,
     pub image: Option<Pixmap>,
+    /// Frames drawn since the visualizer last came into view.
+    pub frames: u64,
+    /// Upper bound on the internal resolution (larger areas are scaled up).
+    pub max_pixels: usize,
+    /// The recoloured copy of the last frame, kept to save allocating one each frame.
+    recoloured: Vec<u32>,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -129,20 +136,27 @@ impl Renderer {
             vis: (ALL[effect].create)(),
             buffer: PixelBuffer::new(1, 1),
             image: None,
+            frames: 0,
+            max_pixels: MAX_PIXELS,
+            recoloured: Vec::new(),
         }
     }
 
     pub fn set(&mut self, effect: usize, preset: usize) {
         if effect != self.effect && effect < ALL.len() {
+            let (frames, max_pixels) = (self.frames, self.max_pixels);
             *self = Renderer::new(effect, preset);
+            self.frames = frames;
+            self.max_pixels = max_pixels;
         }
         self.preset = preset.min(ALL[self.effect].presets.len() - 1);
     }
 
-    /// Draws the next frame for an area of `width` x `height` device pixels.
-    pub fn render(&mut self, frame: &VisFrame, ctx: &VisContext, width: usize, height: usize) {
+    /// Draws the next frame for an area of `width` x `height` device pixels, recoloured by `colors`
+    /// when the visualization has colours chosen for it.
+    pub fn render(&mut self, frame: &VisFrame, ctx: &VisContext, width: usize, height: usize, colors: Option<&colors::ColorMap>) {
         let hint = self.vis.max_pixels();
-        let cap = if hint > 0 { hint.min(MAX_PIXELS) } else { MAX_PIXELS };
+        let cap = if hint > 0 { hint.min(self.max_pixels) } else { self.max_pixels };
         let (width, height) = (width.max(1), height.max(1));
         let k = (cap as f64 / (width * height) as f64).min(1.0).sqrt();
         let (w, h) = (((width as f64 * k) as usize).max(1), ((height as f64 * k) as usize).max(1));
@@ -150,6 +164,17 @@ impl Renderer {
             self.buffer = PixelBuffer::new(w, h);
         }
         self.vis.render(frame, &mut self.buffer, self.preset, ctx);
+        self.frames += 1;
+        // Recolour a copy: the visualizations that warp their previous frame (Battery) must see their own colours.
+        let pixels: &[u32] = match colors {
+            Some(map) => {
+                self.recoloured.clear();
+                self.recoloured.extend_from_slice(&self.buffer.pixels);
+                map.apply(&mut self.recoloured);
+                &self.recoloured
+            }
+            None => &self.buffer.pixels,
+        };
         let image = match self.image.take() {
             Some(img) if img.width() as usize == w && img.height() as usize == h => img,
             _ => match Pixmap::new(w as u32, h as u32) {
@@ -158,7 +183,7 @@ impl Renderer {
             },
         };
         let mut image = image;
-        for (dst, &c) in image.pixels_mut().iter_mut().zip(&self.buffer.pixels) {
+        for (dst, &c) in image.pixels_mut().iter_mut().zip(pixels) {
             if let Some(px) = PremultipliedColorU8::from_rgba((c >> 16) as u8, (c >> 8) as u8, c as u8, 255) {
                 *dst = px;
             }
@@ -203,7 +228,7 @@ mod tests {
                 for _ in 0..30 {
                     ring.lock().unwrap().push_interleaved(&samples[..1600], 2);
                     let frame = analyzer.analyze();
-                    r.render(frame, &ctx, 200, 120);
+                    r.render(frame, &ctx, 200, 120, None);
                 }
                 let img = r.image.as_ref().unwrap();
                 let lit = img.pixels().iter().filter(|p| p.red() > 20 || p.green() > 20 || p.blue() > 20).count();

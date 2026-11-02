@@ -248,18 +248,41 @@ silicon; Intel Macs can build it from source.
 - **Install:** download `WebSkinPlayer-<version>-mac.zip` from the [latest release](../../releases/latest), unzip it
   and move **WebSkin Player** to Applications. It isn't notarized, so
   macOS blocks the first launch: open it once, then go to **System Settings > Privacy & Security** and click
-  **Open Anyway**. Then pick a skin from the **Skins** menu, open a `.wmz` file, or pick one when the app asks.
+  **Open Anyway**. A new install opens the **Skin Chooser** on **Get more skins**.
+- **Modes, as on Windows:** **Full mode** (⌘1) is Now Playing with a large visualizer (double-click or ⌃⌘F for full
+  screen, Esc to leave it), the visualization, preset and colour pickers, and a transport bar with seek, shuffle,
+  repeat and volume. **Skin mode** (⌘2) is the skin. **Menu Bar Player** (⌘3) tucks the player into the menu bar: the
+  artwork and a live mini spectrum with the song's title, scroll over it for volume, click it for the transport
+  buttons, the volume and the modes. **Keep Player in Menu Bar** (View menu) shows it in every mode.
+- **Skin Chooser** (full mode's second tab, ⇧⌘O): installed skins grouped by publisher with a live preview of each,
+  search and a publisher filter, **Apply Skin** (or double-click). **Get more skins** lists the 175-skin
+  [archive.org collection](https://archive.org/details/windowsmediaplayerskinscollection) with WMP's screenshot of
+  each: **Download and Apply**, or **Download All**.
 - **Skins:** the **Skins** menu lists the skins in `~/Library/Application Support/WebSkin Player/Skins`, under their
   first letter when there are more than 30. **Add Skins…** copies in skins, folders of them or a `.zip` of them
   (ones already there are skipped), and **Show Skins Folder** opens it in Finder. **Open Skin…** starts there too.
 - **What it follows:** whatever the Mac shows in Now Playing (Spotify, Music, or a browser tab playing SoundCloud
-  or YouTube). Play, pause, next, previous and seeking go back to that app.
+  or YouTube). Play, pause, next, previous, seeking, shuffle and repeat go back to that app (shuffle and repeat
+  work where the app supports them, as Music does).
+- **Keyboard:** WMP's shortcuts with ⌘ for Ctrl: ⌘P play/pause, ⌘S stop, ⌘B / ⌘F previous / next, ⇧⌘H shuffle,
+  ⌘T repeat; ⌘↑ / ⌘↓ volume and ⌥⌘↓ mute, as the Mac's own players do (F8 to F10 work in skins too).
+- **Always on Top** (⌥⌘T, the pin in full mode, or any right-click menu) keeps full mode and every skin window above
+  other windows. The setting is remembered.
 - **Volume and mute** work the Mac's output volume, because macOS has no per-app volume mixer.
-- **Visualizations:** Bars and Waves, Battery and Album Art, as on Windows, picked from the skin or from
-  **Visualizations** in its right-click menu. They listen to what the Mac plays, which needs macOS 14.2 or later: the
-  first time a skin shows one, macOS asks to let WebSkin Player record system audio. Nothing is recorded or saved. The
-  old WMP visualization plug-ins are Windows DLLs and can't run on a Mac.
-- **Not there yet:** full mode, the taskbar widget, the screen saver and visualization colours.
+- **Visualizations:** Bars and Waves, Battery and Album Art, as on Windows, picked from the skin, from
+  **Visualizations** in its right-click menu, or from full mode. **Each skin remembers its visualization**, and any
+  visualization can be recoloured (**Colors for ...**: the Windows app's palettes, Shift Colors, or a custom colour
+  from the Mac's colour panel). They listen to what the Mac plays, which needs macOS 14.2 or later: the first time
+  one shows, macOS asks to let WebSkin Player record system audio. Nothing is recorded or saved. The old WMP
+  visualization plug-ins are Windows DLLs and can't run on a Mac.
+- **Screen saver** (View menu, or any right-click menu): once the Mac has been idle for the chosen time, every
+  display shows a random visualization, changing every 15 seconds to 5 minutes, with the current track fading in.
+  Moving the mouse or pressing a key closes it; **Lock the Mac When It Closes** locks it as it closes. Like the Mac's
+  own screen saver it stays away while a video, presentation or game keeps the display awake, and while the Mac is
+  locked. **Start Now** shows it straight away.
+- **Updates:** a released copy checks this repository's releases when it starts and shows **Update available** in full
+  mode and the menus (**Check for Updates…** asks any time). **Install Now** downloads the new Mac zip, checks it
+  against the release's checksum, replaces the app and starts it again, keeping your skins and settings.
 - **WMP's own resources:** a few skins use strings, images or scripts from Windows' `wmploc.dll`. Copy
   `wmploc.dll` (and `wmploc.dll.mui`, if you have it) from a Windows PC into
   `~/Library/Application Support/WebSkin Player`. Without it those parts are missing and the skin carries on.
@@ -272,7 +295,11 @@ lines. Commands don't need this, so the app sends them itself.
 
 **Building:** needs Rust (stable). `cd mac && ./build-app.sh` writes `mac/dist/WebSkin Player.app` and a zip.
 `cargo run --release -p webskin -- --test-skins <folder|file> <outDir>` is the same headless skin test as on
-Windows.
+Windows. `cargo run --release -p webskin -- --snapshot <outDir> [skin]` opens full mode, the Skin Chooser, the
+menu-bar player, the screen saver and a skin in turn and saves a picture of each; the **Mac snapshots** workflow
+(`.github/workflows/mac-snapshots.yml`) runs it on a GitHub Mac. `WEBSKIN_HOME=<folder>` runs with a separate
+support folder, `WEBSKIN_TESTSIGNAL=1` feeds made-up music to the visualizers, and `WEBSKIN_UPDATES=<url>` reads
+the update check from a GitHub `releases/latest`-shaped JSON there instead.
 
 ## Building
 
