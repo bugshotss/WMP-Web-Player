@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using WebSkinPlayer.Skins.Scripting;
 
 namespace WebSkinPlayer.Skins.Elements;
@@ -126,7 +127,27 @@ public class SkinElement : ScriptObject
         }
     }
 
-    public IEnumerable<SkinElement> ChildrenInDrawOrder => Children.OrderBy(c => c.ZIndex).ThenBy(c => c.Order);
+    /// <summary>
+    /// Children drawn before a SUBVIEW's background image, then those drawn after. As measured in WMP,
+    /// a child goes under when its zIndex is negative (seen through the holes, as in Goo and Creed), or
+    /// when it is a subview that sets a zIndex below its container's: XBOX's intro (18, 19) plays under
+    /// its screen cover (20). A button stays above (deepbluesomething's face is a zIndex 1 button in a
+    /// zIndex 8 mask), and so does a child that sets no zIndex (WWC's text in its panel). A VIEW keeps
+    /// all its children on top: its clippingColor pixels are keyed out of the window whatever is drawn
+    /// behind them (YIL!OMA2K and Radio keep their screens visible so). A button group draws its
+    /// buttons itself.
+    /// </summary>
+    public (SkinElement[] Behind, SkinElement[] Above) ChildrenBehindAndAbove
+    {
+        get
+        {
+            if (this is ButtonGroupElement) return ([], []);
+            var all = Children.OrderBy(c => c.ZIndex).ThenBy(c => c.Order).ToArray();
+            if (!ClipsChildren || this is SkinView) return ([], all);
+            bool Behind(SkinElement c) => c.ZIndex < 0 || (c is SubviewElement && c.HasValue("zindex") && c.ZIndex < ZIndex);
+            return (all.Where(Behind).ToArray(), all.Where(c => !Behind(c)).ToArray());
+        }
+    }
 
     // Track size so alignment can be applied on parent resize.
     int _lastW = -1, _lastH = -1;
@@ -215,12 +236,55 @@ public class SkinElement : ScriptObject
         return null;
     }
 
+    /// <summary>
+    /// Whether clicks pass through to what lies beneath: it has passThrough, or the nearest subview or view
+    /// holding it does. Measured in WMP with synthetic clicks: a subview's passThrough reaches its buttons,
+    /// text and visualizers (even one set passThrough="false") but not the subviews inside it, which start
+    /// afresh. QuickSilver switches its sliders off this way; Plus! Bionic Dot's EQ lies under such a visualizer.
+    /// </summary>
+    public bool PassesClicks => GetBool("passthrough") || (this is not SubviewElement && Container?.GetBool("passthrough") == true);
+
+    SkinElement? Container
+    {
+        get
+        {
+            for (var p = Parent; p != null; p = p.Parent) if (p is SubviewElement) return p;
+            return null;
+        }
+    }
+
+    static readonly string[] MouseHandlers = { "onclick", "onmousedown", "onmouseup", "ondblclick", "onmouseover", "onmouseout", "onmousemove" };
+
+    /// <summary>
+    /// Whether the element does something with the mouse: a tooltip, or a handler in its attributes or
+    /// assigned by a script. Parts that draw nothing to click take clicks only then.
+    /// </summary>
+    public bool UsesMouse => CurrentToolTip != null || MouseHandlers.Any(h =>
+        HasHandler(h) || (Values.TryGetValue(h, out var v) && v is Jint.Native.Function.Function));
+
+    static readonly HashSet<string> UndrawnAttributes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "transparencycolor", "clippingcolor", "clippingimage", "mappingimage", "positionimage",
+    };
+
+    /// <summary>
+    /// Whether the element may paint <paramref name="rgb"/>: one of its colours is that colour, or a picture it
+    /// draws has an opaque pixel of it (keyed as drawn).
+    /// </summary>
+    public bool MayPaint(int rgb) => Values.Any(kv => kv.Value is string v && v.Length > 0 && !UndrawnAttributes.Contains(kv.Key) && (
+        (kv.Key.EndsWith("color", StringComparison.OrdinalIgnoreCase) && SkinImages.ParseColor(v) is int c && SkinImages.MatchesKey(c, rgb)) ||
+        (kv.Key.EndsWith("image", StringComparison.OrdinalIgnoreCase) &&
+         View.Theme.Images.Get(v, SkinImages.ParseColor(GetString("transparencycolor")), GetNumber("hueshift"), GetNumber("saturation")) is { } img && img.Shows(rgb))));
+
     /// <summary>Whether a click here should be handled by the element rather than drag the window.</summary>
     public virtual bool IsInteractive =>
         HasHandler("onclick") || HasHandler("onmousedown") || HasHandler("onmouseup") || HasHandler("ondblclick");
 
     /// <summary>Local hit test (point relative to element origin).</summary>
     public virtual bool HitTest(Point local) => local.X >= 0 && local.Y >= 0 && local.X < Width && local.Y < Height;
+
+    /// <summary>Hit test for what is drawn over the negative-zIndex children (not a backgroundColor).</summary>
+    public virtual bool HitTestImage(Point local) => HitTest(local);
 
     public virtual string? CurrentToolTip => NonEmpty(GetString("tooltip")) ?? NonEmpty(GetString("uptooltip"));
     protected static string? NonEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
@@ -264,6 +328,9 @@ public class SkinElement : ScriptObject
 
     /// <summary>Draws this element at its absolute position (children are drawn by the caller).</summary>
     public virtual void Render(DrawingContext dc, Rect bounds) { }
+
+    /// <summary>Draws what sits under even the negative-zIndex children (a container's backgroundColor).</summary>
+    public virtual void RenderBackdrop(DrawingContext dc, Rect bounds) { }
 
     /// <summary>Called once after load completes (bindings applied, scripts run).</summary>
     public virtual void OnLoaded() { }
@@ -310,8 +377,16 @@ public class SkinElement : ScriptObject
     /// <summary>True when the mask repeats (a tiled background that doubles as the clipping shape).</summary>
     public virtual bool MaskTiled => false;
 
+    /// <summary>A shape the element is also cut to, and where its top-left sits in view coordinates (null = none).</summary>
+    public virtual (SkinBitmap Mask, Point At)? HostMask => null;
+
     public bool MaskAllows(Point local)
     {
+        if (HostMask is { } host)
+        {
+            var abs = Absolute;
+            if (host.Mask.Alpha((int)(local.X + abs.X - host.At.X), (int)(local.Y + abs.Y - host.At.Y)) == 0) return false;
+        }
         var m = ClipMask;
         if (m == null) return true;
         int x = (int)local.X, y = (int)local.Y;
@@ -338,19 +413,32 @@ public class SkinElement : ScriptObject
     protected ImageSource FrameOf(SkinBitmap bmp, string key)
     {
         if (!bmp.IsAnimated) return bmp.Source;
-        var now = DateTime.UtcNow;
+        var now = View.HeldAt ?? DateTime.UtcNow;
         if (!_animStart.TryGetValue(key, out var start)) _animStart[key] = start = now;
         var frame = bmp.FrameAt((now - start).TotalMilliseconds, out double next);
         if (next >= 0) View.RequestAnimationFrame(next);
+        _shown[key] = frame;
         return frame;
     }
+
+    readonly Dictionary<string, BitmapSource> _shown = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The frame of <paramref name="bmp"/> last drawn under <paramref name="key"/> (its first before any).</summary>
+    protected BitmapSource ShownFrame(SkinBitmap bmp, string key) => bmp.IsAnimated && _shown.TryGetValue(key, out var f) ? f : bmp.Source;
 
     /// <summary>Restart animated GIFs (an element shown again plays its animation from the top).</summary>
     public void RestartAnimations()
     {
         _animStart.Clear();
+        _shown.Clear();
         foreach (var c in Children) c.RestartAnimations();
     }
+
+    /// <summary>WMP font sizes are points at 96 dpi, which Windows rounded to whole pixels.</summary>
+    protected static double PointsToPixels(double points) => Math.Round(Math.Max(1, points) * 96.0 / 72.0);
+
+    /// <summary>A line's height for a font of <paramref name="px"/> pixels, as Windows rounded Tahoma's ascent plus descent.</summary>
+    protected static double LineHeight(double px) => Math.Round(px * 1.21);
 
     protected static void DrawBitmap(DrawingContext dc, SkinBitmap? bmp, double x, double y)
     {

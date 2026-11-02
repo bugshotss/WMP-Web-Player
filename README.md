@@ -299,12 +299,20 @@ check it for updates; local builds don't.
   lists script errors.
 - `WebSkinPlayer.exe --test-live <folder|file> <outDir> [seconds]` opens each skin for real but hidden and sandboxed.
   Scripts, timers, GIFs, and player events all run, but nothing reaches your player, volume, browser, or settings.
-  Afterwards it measures how much of every visualizer area is actually visible, and for a covered one names what is
-  drawn over it (`live-report.txt`).
+  A made-up song plays (Glue by Bicep, moving on from 0:40), so skins that draw the time from its position show it.
+  After the first pass the song pauses, resumes, changes to a new track, jumps to 2:30 and stops; the windows are
+  saved and checked again after the pause, the change and the stop (`<skin>.<view>.paused.png` and so on), and the
+  report lists the script errors each event raised as `EVENT` lines.
+  It saves every window the skin opens as `<skin>.<view>.png`, with each named element's box in
+  `<skin>.<view>.tree.txt`, measures how much of every visualizer area is actually visible, and for a covered one
+  names what is drawn over it (`live-report.txt`). It also checks that every
+  button and slider a window shows can be clicked at a pixel it shows, lists each one that can't as a `FAULT`, and
+  exits with code 1 if there is any.
 - `WebSkinPlayer.exe --automate script.txt` replays commands through the real input code:
   `click x y`, `drag x1 y1 x2 y2`, `eval js`, `capture file.png`, `capturefull file.png`, `vis Bars 0`,
   `choose Bars 0` (as picked from the right-click menu), `viscolor Bars palette:Fire|hue:120|custom:#RRGGBB` (no
-  spec for the original colours), `update` (Install Now on an available update, without asking), `skin path`,
+  spec for the original colours), `update` (Install Now on an available update, without asking), `play title`
+  (a made-up song by that name plays and joins the history), `skin path`,
   `widget`, `restore`, `fullmode`,
   `tab skins|online`, `uiclick ButtonName`, `uiselect ListName text`, `state label`, `wait ms`, `exit`.
   `record skin|full|saver|widget <frames> <ms> <scale> <dir>` saves numbered PNG frames of the skin, full mode, the

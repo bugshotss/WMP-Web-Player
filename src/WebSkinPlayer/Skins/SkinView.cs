@@ -91,6 +91,9 @@ public sealed class SkinView : SubviewElement
     readonly bool _forPreview;
     public IEnumerable<SkinElement> AllElements => _all;
 
+    /// <summary>When set, animated GIFs show the frame of that moment: the test run's window checks compare several pictures of one moment.</summary>
+    public DateTime? HeldAt { get; set; }
+
     protected override object? ElementDefault(string name) => name.ToLowerInvariant() switch
     {
         "titlebar" => true,
@@ -164,12 +167,15 @@ public sealed class SkinView : SubviewElement
             case "TEXT": case "STATUSTEXT": case "CURRENTPOSITIONTEXT": case "METADATATEXT": case "DURATIONTEXT": return new TextElement(this, n);
             case "EFFECTS": case "WMPEFFECTS": return new EffectsElement(this, n);
             case "VIDEO": case "WMPVIDEO": return new VideoElement(this, n);
-            case "PLAYLIST": case "ITEMSPLAYLIST": case "DROPDOWNPLAYLIST": case "LISTBOX": return new PlaylistElement(this, n);
+            case "PLAYLIST": case "ITEMSPLAYLIST": case "DROPDOWNPLAYLIST": return new PlaylistElement(this, n);
+            case "LISTBOX": return new ListBoxElement(this, n);
             case "EQUALIZERSETTINGS": return new EqualizerSettingsElement(this, n);
             case "VIDEOSETTINGS": return new VideoSettingsElement(this, n);
             case "POPUP": return new PopupElement(this, n);
             case "AUTOMENU": return new AutoMenuElement(this, n);
             case "VIEW": case "THEME": return null;
+            // A POPUP's or LISTBOX's lines, read by the element itself.
+            case "ITEM" when parent is PopupElement or ListBoxElement: return null;
         }
         if (parent is ButtonGroupElement && (t == "BUTTONELEMENT" || t.EndsWith("ELEMENT"))) return new GroupButtonElement(this, n);
         if (t == "BUTTON" || t.EndsWith("BUTTON")) return new ButtonElement(this, n);
@@ -470,11 +476,7 @@ public sealed class SkinView : SubviewElement
     }
 
     /// <summary>Loads the view offscreen (for skin previews): runs onLoad but never shows a window.</summary>
-    public void LoadForPreview()
-    {
-        foreach (var el in _all.OfType<EffectsElement>()) { }
-        Fire("onload");
-    }
+    public void LoadForPreview() => Fire("onload");
 
     public void CloseWindow()
     {
@@ -579,8 +581,13 @@ public sealed class SkinView : SubviewElement
 
     // ---- rendering ------------------------------------------------------------------------
 
-    // A VIEW's clippingColor / transparencyColor keys the composed window (like a layered
-    // window colour key): any pixel of that colour disappears, whichever element drew it.
+    // WMP keyed the composed window (like a layered window colour key). A VIEW's clippingColor and
+    // transparencyColor cut every pixel of that colour, whichever element drew it. A SUBVIEW's
+    // transparencyColor cut only its holes, so a button or slider painted in that colour over a
+    // hole was cut too (World of Warcraft's sliders). WMP also filled a frameless window's empty
+    // background with magenta and keyed it out, so magenta vanished wherever it was drawn (WWC's
+    // intro over its pipes).
+    const int Magenta = 0xFF00FF;
     ImageBrush? _compositeMask;
     bool _maskDirty = true;
     DateTime _maskBuilt;
@@ -590,32 +597,48 @@ public sealed class SkinView : SubviewElement
         (GetString("clippingimage").Length == 0 ? SkinImages.ParseColor(GetString("clippingcolor")) : null,
          SkinImages.ParseColor(GetString("transparencycolor")));
 
-    bool UsesCompositeKey
+    bool KeysWindow { get { var (c, t) = ViewKeys; return c != null || t != null; } }
+
+    bool UsesCompositeMask => !GetBool("titlebar") && Width > 0 && Height > 0;
+
+    bool HasKeyedSubview => _all.Any(e => e is SubviewElement s && Shown(s) &&
+        SkinImages.ParseColor(s.GetString("transparencycolor")) != null && s.GetString("backgroundimage").Length > 0);
+
+    /// <summary>Whether anything shown may paint magenta. Visualizations and video are left out: WMP never keyed them.</summary>
+    bool MayShowMagenta => _all.Prepend(this).Any(e => e is not EffectsElement && Shown(e) && e.MayPaint(Magenta));
+
+    /// <summary>Visible up to the VIEW, whose own visible="false" WMP ignored.</summary>
+    static bool Shown(SkinElement e)
     {
-        get { var (c, t) = ViewKeys; return (c != null || t != null) && !GetBool("titlebar") && Width > 0 && Height > 0; }
+        for (SkinElement? p = e; p is { } and not SkinView; p = p.Parent) if (!p.Visible) return false;
+        return true;
     }
+
+    /// <summary>A VIEW's keys cut the window only without a title bar; otherwise its clipping mask shapes it.</summary>
+    bool ShapedByClipMask => GetBool("titlebar") || !KeysWindow;
 
     public void RenderTree(DrawingContext dc)
     {
-        if (UsesCompositeKey)
+        bool viewMask = ShapedByClipMask;
+        if (UsesCompositeMask)
         {
             EnsureCompositeMask();
             if (_compositeMask != null)
             {
                 dc.PushOpacityMask(_compositeMask);
-                RenderElement(dc, this, viewMask: false);
+                RenderElement(dc, this, viewMask);
                 dc.Pop();
                 return;
             }
         }
-        RenderElement(dc, this);
+        RenderElement(dc, this, viewMask);
     }
 
     void EnsureCompositeMask()
     {
-        if (!_maskDirty && _compositeMask != null) return;
+        if (!_maskDirty) return;
         // Rebuilding means a software render of the whole view; cap it at ~10 per second.
-        if (_compositeMask != null && DateTime.UtcNow - _maskBuilt < TimeSpan.FromMilliseconds(100))
+        if (DateTime.UtcNow - _maskBuilt < TimeSpan.FromMilliseconds(100))
         {
             if (_maskTimer == null)
             {
@@ -627,23 +650,14 @@ public sealed class SkinView : SubviewElement
         }
         _maskDirty = false;
         _maskBuilt = DateTime.UtcNow;
-        int w = Math.Min(4000, Width), h = Math.Min(4000, Height);
-        var dv = new DrawingVisual();
-        using (var mdc = dv.RenderOpen()) RenderElement(mdc, this, viewMask: false);
-        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
-        rtb.Render(dv);
-        var px = new int[w * h];
-        rtb.CopyPixels(px, w * 4, 0);
-        var (clip, trans) = ViewKeys;
-        // Only key-coloured pixels are cut; everything else stays unmasked so content that
-        // changes between rebuilds (GIF frames, visualizers) is never hidden by a stale mask.
-        for (int i = 0; i < px.Length; i++)
-        {
-            int c = px[i];
-            int a = (c >>> 24) & 255, rgb = c & 0xFFFFFF;
-            bool keyed = a == 255 && ((clip.HasValue && rgb == clip.Value) || (trans.HasValue && rgb == trans.Value));
-            px[i] = keyed ? 0 : unchecked((int)0xFF000000);
-        }
+        // A window keyed only by magenta needs no software render while nothing shown can paint it: New Super
+        // Mario Bros redraws ten times a second and shows none.
+        if (!KeysWindow && !HasKeyedSubview && !MayShowMagenta) { _compositeMask = null; return; }
+        var (_, cut, w, h) = RenderCut(null);
+        if (cut == null) { _compositeMask = null; return; }
+        // Only cut pixels are masked; everything else stays unmasked so content that changes between
+        // rebuilds (GIF frames, visualizers) is never hidden by a stale mask.
+        var px = cut.Select(c => c ? 0 : unchecked((int)0xFF000000)).ToArray();
         var mask = BitmapSource.Create(w, h, 96, 96, PixelFormats.Pbgra32, null, px, w * 4);
         mask.Freeze();
         var brush = new ImageBrush(mask) { ViewportUnits = BrushMappingMode.Absolute, Viewport = new Rect(0, 0, w, h), Stretch = Stretch.Fill };
@@ -651,10 +665,131 @@ public sealed class SkinView : SubviewElement
         _compositeMask = brush;
     }
 
-    void RenderElement(DrawingContext dc, SkinElement e, bool viewMask = true)
+    /// <summary>
+    /// The view drawn in software, and which of its pixels the window cuts (null when none), leaving out
+    /// <paramref name="hidden"/> without changing it.
+    /// </summary>
+    (int[] Pixels, bool[]? Cut, int W, int H) RenderCut(SkinElement? hidden)
+    {
+        int w = Math.Min(4000, Width), h = Math.Min(4000, Height);
+        if (w <= 0 || h <= 0) return ([], null, 0, 0);
+        bool viewMask = ShapedByClipMask;
+        var drawn = new DrawPass { Hidden = hidden };
+        var px = RenderPixels(new Int32Rect(0, 0, w, h), viewMask, drawn);
+        if (!UsesCompositeMask) return (px, null, w, h);
+        var holes = FindHoles(drawn, px, w, h, viewMask, hidden);
+        var (clip, trans) = ViewKeys;
+        var cut = new bool[px.Length];
+        bool any = false;
+        for (int i = 0; i < px.Length; i++)
+        {
+            int c = px[i];
+            int a = (c >>> 24) & 255, rgb = c & 0xFFFFFF, hole = holes?[i] ?? 0;
+            cut[i] = (hole & HoleBit) != 0 || (a == 255 && ((clip is int ck && SkinImages.MatchesKey(rgb, ck)) ||
+                (trans is int tk && SkinImages.MatchesKey(rgb, tk)) || SkinImages.MatchesKey(rgb, Magenta)));
+            any |= cut[i];
+        }
+        return (px, any ? cut : null, w, h);
+    }
+
+    /// <summary>
+    /// The window as it shows, drawn in software with its cut pixels cleared, leaving out <paramref name="hidden"/>
+    /// without changing it (the test run's window checks compare the two). Width × height pixels, empty for a 0x0 view.
+    /// </summary>
+    public int[] RenderWindow(SkinElement? hidden = null)
+    {
+        var (px, cut, _, _) = RenderCut(hidden);
+        return cut == null ? px : px.Select((c, i) => cut[i] ? 0 : c).ToArray();
+    }
+
+    /// <summary>A software render of the view: the elements in the order they drew, where to stop, and one to leave out.</summary>
+    sealed class DrawPass
+    {
+        public SkinElement? StopAfter;
+        public SkinElement? Hidden;
+        public bool Stopped;
+        public readonly List<(SkinElement El, bool Backdrop)> Steps = new();
+    }
+
+    int[] RenderPixels(Int32Rect area, bool viewMask, DrawPass pass)
+    {
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            dc.PushTransform(new TranslateTransform(-area.X, -area.Y));
+            RenderElement(dc, this, viewMask, pass);
+            dc.Pop();
+        }
+        var rtb = new RenderTargetBitmap(area.Width, area.Height, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(dv);
+        var px = new int[area.Width * area.Height];
+        rtb.CopyPixels(px, area.Width * 4, 0);
+        return px;
+    }
+
+    const int HoleBit = 1 << 24, CoveredBit = 1 << 25;
+
+    /// <summary>
+    /// Per pixel, the transparencyColor a subview left open there with nothing under it (with <see cref="HoleBit"/>
+    /// set, so a black key counts), <see cref="CoveredBit"/> once a background or fill covered it, or 0. Replays
+    /// <paramref name="drawn"/>: a subview's picture opens holes where it shows its key over nothing and covers
+    /// where it is visible; a backgroundColor, EFFECTS and VIDEO cover too
+    /// (WMP showed visualizations and video in windows of their own, never keyed with the skin). A covered pixel
+    /// stays covered. WMP shaped the window from the backgrounds, so whatever is drawn over a hole is cut. Null
+    /// when there is none.
+    /// </summary>
+    int[]? FindHoles(DrawPass drawn, int[] final, int w, int h, bool viewMask, SkinElement? hidden)
+    {
+        if (!drawn.Steps.Any(s => !s.Backdrop && s.El != this && s.El is SubviewElement { HoleKey: not null })) return null;
+        var holes = new int[w * h];
+        bool any = false;
+        var view = new Rect(0, 0, w, h);
+        foreach (var (el, backdrop) in drawn.Steps)
+        {
+            bool fills = backdrop ? el is SubviewElement { BackgroundColor: not null } : el is EffectsElement;
+            // The VIEW is drawn first and its keys cut the whole window, so its picture opens nothing.
+            var opener = !backdrop && el is SubviewElement sv && sv != this ? sv : null;
+            if (!fills && opener == null) continue;
+            var bounds = el.AbsoluteBounds;
+            var shown = bounds;
+            for (var p = el.Parent; p != null; p = p.Parent) if (p.ClipsChildren) shown.Intersect(p.AbsoluteBounds);
+            shown.Intersect(view);
+            if (shown.IsEmpty) continue;
+            int x0 = (int)Math.Floor(shown.Left), y0 = (int)Math.Floor(shown.Top);
+            var area = new Int32Rect(x0, y0, (int)Math.Ceiling(shown.Right) - x0, (int)Math.Ceiling(shown.Bottom) - y0);
+            if (area.Width <= 0 || area.Height <= 0) continue;
+            IEnumerable<int> Pixels() =>
+                Enumerable.Range(area.Y, area.Height).SelectMany(y => Enumerable.Range(area.X, area.Width).Select(x => y * w + x));
+            if (opener == null)
+            {
+                foreach (int i in Pixels()) holes[i] = CoveredBit;
+                continue;
+            }
+            if (opener.BackdropMap() is not { } at) continue;
+            int? key = opener.HoleKey;
+            var looks = Pixels().Select(i => (i, at(new Point(i % w + 0.5 - bounds.X, i / w + 0.5 - bounds.Y)))).ToArray();
+            // What is drawn under an open pixel only matters where the finished window shows something there to
+            // cut, so most keyed subviews need no extra render.
+            bool matters = looks.Any(l => l.Item2 == Backdrop.Open && holes[l.i] != CoveredBit && (final[l.i] >>> 24) > 0);
+            int[]? under = matters ? RenderPixels(area, viewMask, new DrawPass { StopAfter = opener, Hidden = hidden }) : null;
+            foreach (var (i, look) in looks)
+            {
+                if (look == Backdrop.Covered) holes[i] = CoveredBit;
+                else if (look == Backdrop.Open && key is int k && under != null && holes[i] != CoveredBit &&
+                         (under[(i / w - area.Y) * area.Width + i % w - area.X] >>> 24) == 0)
+                {
+                    holes[i] = k | HoleBit;
+                    any = true;
+                }
+            }
+        }
+        return any ? holes : null;
+    }
+
+    void RenderElement(DrawingContext dc, SkinElement e, bool viewMask = true, DrawPass? pass = null)
     {
         // A VIEW is the window itself; WMP ignored visible="false" on it.
-        if (!e.Visible && e != this) return;
+        if ((!e.Visible && e != this) || pass?.Stopped == true || (pass != null && e == pass.Hidden)) return;
         var b = e == this ? new Rect(0, 0, Width, Height) : e.AbsoluteBounds;
         int pushes = 0;
         double op = e.Opacity;
@@ -673,43 +808,68 @@ public sealed class SkinView : SubviewElement
             dc.PushOpacityMask(brush);
             pushes++;
         }
+        // Stacked opacity masks multiply, so this combines with the element's own clipping mask.
+        if (e.HostMask is { } host)
+        {
+            var brush = new System.Windows.Media.ImageBrush(host.Mask.Source)
+            {
+                ViewportUnits = BrushMappingMode.Absolute,
+                Viewport = new Rect(host.At.X, host.At.Y, host.Mask.Width, host.Mask.Height),
+                Stretch = Stretch.Fill,
+            };
+            brush.Freeze();
+            dc.PushOpacityMask(brush);
+            pushes++;
+        }
         if (e.ClipsChildren) { dc.PushClip(new RectangleGeometry(b)); pushes++; }
-        e.Render(dc, b);
-        if (e is not ButtonGroupElement)
-            foreach (var c in e.ChildrenInDrawOrder) RenderElement(dc, c);
+        var (behind, above) = e.ChildrenBehindAndAbove;
+        e.RenderBackdrop(dc, b);
+        pass?.Steps.Add((e, true));
+        foreach (var c in behind) RenderElement(dc, c, pass: pass);
+        if (pass?.Stopped != true)
+        {
+            e.Render(dc, b);
+            pass?.Steps.Add((e, false));
+            if (pass != null && e == pass.StopAfter) pass.Stopped = true;
+        }
+        foreach (var c in above) RenderElement(dc, c, pass: pass);
         for (int i = 0; i < pushes; i++) dc.Pop();
     }
 
     // ---- input -----------------------------------------------------------------------------
 
-    public SkinElement? HitTestPoint(Point p) => HitIn(this, p) ?? (HitTest(p) ? this : null);
-
-    SkinElement? HitIn(SkinElement container, Point p)
+    public SkinElement? HitTestPoint(Point p)
     {
-        foreach (var c in container.ChildrenInDrawOrder.Reverse())
+        var (behind, above) = ChildrenBehindAndAbove;
+        return HitIn(above, p) ?? (HitTest(p) ? this : null) ?? HitIn(behind, p);
+    }
+
+    /// <summary>
+    /// The topmost of <paramref name="children"/> (in draw order) under the point, searching into containers
+    /// in the order they draw: children above, the container itself, then children behind it.
+    /// </summary>
+    SkinElement? HitIn(SkinElement[] children, Point p)
+    {
+        foreach (var c in Enumerable.Reverse(children))
         {
             if (!c.Visible) continue;
             var abs = c.Absolute;
             var local = new Point(p.X - abs.X, p.Y - abs.Y);
             if (c is ButtonGroupElement g)
             {
-                if (g.HitTest(local) && g.MaskAllows(local)) return g.ElementAt(local);
+                if (!g.PassesClicks && g.HitTest(local) && g.MaskAllows(local)) return g.ElementAt(local);
                 continue;
             }
-            if (c.ClipsChildren)
-            {
-                if (local.X < 0 || local.Y < 0 || local.X >= c.Width || local.Y >= c.Height) continue;
-                if (!c.MaskAllows(local)) continue;
-                var inner = HitIn(c, p);
-                if (inner != null) return inner;
-            }
-            else if (c.Children.Count > 0)
-            {
-                var inner = HitIn(c, p);
-                if (inner != null) return inner;
-            }
-            if (c.GetBool("passthrough")) continue;
-            if (c.HitTest(local) && c.MaskAllows(local)) return c;
+            if (c.ClipsChildren && (local.X < 0 || local.Y < 0 || local.X >= c.Width || local.Y >= c.Height || !c.MaskAllows(local))) continue;
+            var (behind, above) = c.ChildrenBehindAndAbove;
+            var hit = HitIn(above, p);
+            if (hit != null) return hit;
+            // A disabled button lets clicks through: QuickSilver lays disabled buttons over its real ones as artwork.
+            bool own = !c.PassesClicks && c is not ButtonElement { Enabled: false } && c.MaskAllows(local);
+            if (own && c.HitTestImage(local)) return c;
+            hit = HitIn(behind, p);
+            if (hit != null) return hit;
+            if (own && c.HitTest(local)) return c;
         }
         return null;
     }
@@ -795,8 +955,7 @@ public sealed class SkinView : SubviewElement
         if (hit == null) return false;
         SetEvent(hit, p, button == MouseButton.Left ? 1 : button == MouseButton.Right ? 2 : 4);
         if (clicks == 2 && hit.HasHandler("ondblclick")) { hit.OnDoubleClick(LocalTo(hit, p)); return true; }
-        bool interactive = hit.IsInteractive && (hit.Enabled || hit is not ButtonElement);
-        if (!interactive)
+        if (!hit.IsInteractive)
         {
             if (hit != this) hit.Fire("onmousedown");
             if (HasHandler("onmousedown") && hit != this) Fire("onmousedown");

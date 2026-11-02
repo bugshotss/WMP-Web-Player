@@ -56,8 +56,9 @@ public class SliderElement : SkinElement
         }
     }
 
-    public override int NaturalWidth => Math.Max(Background?.Width ?? 0, Img("thumbimage")?.Width ?? 0);
-    public override int NaturalHeight => Math.Max(Background?.Height ?? 0, Img("thumbimage")?.Height ?? 0);
+    // Its track's size, measured in WMP; a taller thumb is clipped to it.
+    public override int NaturalWidth => Background?.Width ?? Img("thumbimage")?.Width ?? 0;
+    public override int NaturalHeight => Background?.Height ?? Img("thumbimage")?.Height ?? 0;
 
     double Min => GetNumber("min");
     double Max => GetNumber("max");
@@ -95,10 +96,11 @@ public class SliderElement : SkinElement
         if (Vertical)
         {
             double y = Math.Clamp(c - t.Height / 2.0, 0, Math.Max(0, Height - t.Height));
-            return new Rect(bounds.X + (Width - t.Width) / 2.0, bounds.Y + y, t.Width, t.Height);
+            return new Rect(bounds.X + Math.Max(0, (Width - t.Width) / 2.0), bounds.Y + y, t.Width, t.Height);
         }
         double x = Math.Clamp(c - t.Width / 2.0, 0, Math.Max(0, Width - t.Width));
-        return new Rect(bounds.X + x, bounds.Y + (Height - t.Height) / 2.0, t.Width, t.Height);
+        // Centred across the track but never above its top: a taller thumb hangs from it (anime, Crystalball).
+        return new Rect(bounds.X + x, bounds.Y + Math.Max(0, (Height - t.Height) / 2.0), t.Width, t.Height);
     }
 
     public override void Render(DrawingContext dc, Rect b)
@@ -274,7 +276,7 @@ public sealed class CustomSliderElement : SkinElement
 
     protected override void OnPropertyChanged(string name)
     {
-        if (name is "image" or "transparencycolor" or "width" or "hueshift" or "saturation") _frames.Clear();
+        if (name is "image" or "transparencycolor" or "width" or "height" or "hueshift" or "saturation") _frames.Clear();
     }
 
     public override void Render(DrawingContext dc, Rect b)
@@ -282,14 +284,22 @@ public sealed class CustomSliderElement : SkinElement
         var strip = Strip;
         if (strip == null) return;
         int fw = Math.Max(1, Width > 0 ? Width : strip.Width);
-        int frames = Math.Max(1, strip.Width / fw);
+        int fh = Math.Max(1, Height > 0 ? Height : strip.Height);
+        // Frames run left to right, or top to bottom when the strip is one frame wide
+        // (Windows XP Media Center Edition's seek bar).
+        bool vertical = strip.Width / fw <= 1 && strip.Height / fh > 1;
+        int len = vertical ? strip.Height : strip.Width, step = vertical ? fh : fw;
+        int frames = Math.Max(1, len / step);
         double range = GetNumber("max") - GetNumber("min");
         double r = range == 0 ? 0 : Math.Clamp((GetNumber("value") - GetNumber("min")) / range, 0, 1);
         int f = (int)Math.Round(r * (frames - 1));
         if (!_frames.TryGetValue(f, out var crop))
         {
-            int x = Math.Min(f * fw, Math.Max(0, strip.Width - fw));
-            crop = new CroppedBitmap(strip.Source, new Int32Rect(x, 0, Math.Min(fw, strip.Width - x), strip.Height));
+            int at = Math.Min(f * step, Math.Max(0, len - step));
+            int size = Math.Min(step, len - at);
+            crop = new CroppedBitmap(strip.Source, vertical
+                ? new Int32Rect(0, at, strip.Width, size)
+                : new Int32Rect(at, 0, size, strip.Height));
             crop.Freeze();
             _frames[f] = crop;
         }
@@ -304,7 +314,7 @@ public sealed class CustomSliderElement : SkinElement
         int rgb = map.Rgb((int)local.X, (int)local.Y);
         if (rgb < 0) return false;
         int? key = SkinImages.ParseColor(GetString("transparencycolor"));
-        if (key.HasValue && rgb == key.Value) return false;
+        if (key is int k && SkinImages.MatchesKey(rgb, k)) return false;
         int gray = ((rgb >> 16) & 255) * 30 / 100 + ((rgb >> 8) & 255) * 59 / 100 + (rgb & 255) * 11 / 100;
         value = GetNumber("min") + gray / 255.0 * (GetNumber("max") - GetNumber("min"));
         return true;
