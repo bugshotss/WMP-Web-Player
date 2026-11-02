@@ -374,7 +374,7 @@ fn dump(s: &Skin, v: ViewId, e: usize, depth: usize, out: &mut String) {
 }
 
 /// Crops fully transparent margins (many skins sit in a much larger transparent view).
-fn trim(c: &Canvas) -> tiny_skia::Pixmap {
+pub(crate) fn trim(c: &Canvas) -> tiny_skia::Pixmap {
     let pm = &c.pixmap;
     let (w, h) = (pm.width(), pm.height());
     let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);

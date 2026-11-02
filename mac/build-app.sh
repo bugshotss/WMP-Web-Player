@@ -1,5 +1,7 @@
 #!/bin/sh
-# Builds "WebSkin Player.app" (and a zip of it) in mac/dist. VERSION overrides the Cargo version.
+# Builds "WebSkin Player.app" (and a zip of it) in mac/dist. VERSION overrides the Cargo version, and
+# REPOSITORY_URL (set by the release workflow) is where the app looks for updates; local builds leave it
+# out and don't check on their own.
 # The app is ad-hoc signed, not notarized: the first launch needs Open Anyway in Privacy & Security.
 set -eu
 
@@ -36,6 +38,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>WebSkinRepository</key><string>${REPOSITORY_URL:-}</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAudioCaptureUsageDescription</key><string>WebSkin Player listens to what your Mac plays to draw the visualizations. Nothing is recorded or saved.</string>

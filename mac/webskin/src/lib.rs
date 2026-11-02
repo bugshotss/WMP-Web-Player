@@ -1,16 +1,21 @@
 //! WebSkin Player for macOS: Windows Media Player skins for whatever the Mac is playing.
 
+pub mod catalog;
 mod images;
-mod library;
+pub mod library;
+pub mod net;
+pub mod online;
 mod package;
 mod player;
+pub mod preview;
 mod render;
 mod resources;
 pub mod runner;
 mod script;
-mod settings;
+pub mod settings;
 mod skin;
 mod text;
+pub mod update;
 mod value;
 mod vis;
 mod wms;

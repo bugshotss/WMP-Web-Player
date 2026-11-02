@@ -3,6 +3,7 @@
 
 use super::element::Kind;
 use super::{Skin, ViewId};
+use crate::settings::SkinEffect;
 use crate::value::{ObjRef, Value};
 use crate::vis::{self, ALL, Renderer, VisFrame};
 
@@ -19,6 +20,10 @@ impl Skin {
         }
         self.settings.vis_effect = ALL[effect].id.to_string();
         self.settings.vis_preset = preset;
+        // The visualization shown in a skin is the one it opens with next time.
+        if !self.preview {
+            self.settings.skin_effects.insert(self.key.clone(), SkinEffect { effect: ALL[effect].id.to_string(), preset });
+        }
         self.settings.save();
         for name in ["effecttype", "effectpreset", "effecttitle", "effectpresettitle"] {
             self.notify(ObjRef::MediaCenter, name);
@@ -64,10 +69,28 @@ impl Skin {
             .collect()
     }
 
-    /// What an element shows: its renderer's choice, or what its properties ask for.
+    /// The skin has a visualization remembered: one was shown in it before.
+    pub fn remembers_vis(&self) -> bool {
+        !self.preview && self.settings.skin_effects.contains_key(&self.key)
+    }
+
+    /// A skin switching its visualizer on often names one as it does (Kenwood sets "Spikes" each time it
+    /// changes from its song display to the visualizer). Once the skin has a visualization remembered, that
+    /// comes back instead; one chosen while the visualizer is already showing (a skin's own visualization
+    /// menu) still applies.
+    fn keeps_remembered(&self, v: ViewId, e: usize) -> bool {
+        let showing = self.effectively_visible(v, e) && self.el(v, e).state.vis.as_ref().is_some_and(|r| r.frames > 0);
+        !showing && self.remembers_vis()
+    }
+
+    /// What an element shows: its renderer's choice, or what its properties ask for. A skin's remembered
+    /// visualization outranks the one it names.
     pub(super) fn shown_vis(&self, v: ViewId, e: usize) -> (usize, usize) {
         if let Some(r) = &self.el(v, e).state.vis {
             return (r.effect, r.preset);
+        }
+        if self.restored_vis {
+            return self.global_vis();
         }
         let named = ["currenteffecttype", "effecttype"].iter().find_map(|n| vis::find(&self.get_str(v, e, n)));
         let (global, global_preset) = self.global_vis();
@@ -105,6 +128,11 @@ impl Skin {
     /// A skin changed currentEffectType, effectType, currentPreset or preset.
     pub(super) fn effects_changed(&mut self, v: ViewId, e: usize, name: &str) {
         if self.el(v, e).state.applying {
+            return;
+        }
+        if matches!(name, "currenteffecttype" | "effecttype" | "currentpreset" | "preset") && self.keeps_remembered(v, e) {
+            let (global, global_preset) = self.global_vis();
+            self.apply_vis(v, e, global, global_preset, false);
             return;
         }
         let (effect, preset) = self.shown_vis(v, e);
@@ -183,6 +211,22 @@ impl Skin {
         })
     }
 
+    /// The colours chosen for a visualization ("" = its own).
+    pub fn vis_colors(&self, effect: usize) -> String {
+        self.settings.vis_colors.get(ALL[effect.min(ALL.len() - 1)].id).cloned().unwrap_or_default()
+    }
+
+    /// Recolours a visualization everywhere it shows ("" = its own colours).
+    pub fn set_vis_colors(&mut self, effect: usize, spec: &str) {
+        let id = ALL[effect.min(ALL.len() - 1)].id.to_string();
+        if spec.is_empty() {
+            self.settings.vis_colors.remove(&id);
+        } else {
+            self.settings.vis_colors.insert(id, spec.to_string());
+        }
+        self.settings.save();
+    }
+
     /// Picked from the player's own menu: every visualizer switches to it, as in WMP.
     pub fn choose_vis(&mut self, effect: usize, preset: usize) {
         self.set_global_vis(effect, preset);
@@ -200,6 +244,9 @@ impl Skin {
     pub fn render_visualizers(&mut self, frame: &VisFrame, scale: f64) {
         for (v, e) in self.visualizers() {
             if !self.effectively_visible(v, e) {
+                if let Some(r) = self.el_mut(v, e).state.vis.as_mut() {
+                    r.frames = 0;
+                }
                 continue;
             }
             let b = self.bounds(v, e);
@@ -211,7 +258,8 @@ impl Skin {
                 self.apply_vis(v, e, effect, preset, false);
             }
             let Some(mut r) = self.el_mut(v, e).state.vis.take() else { continue };
-            r.render(frame, &self.vis_context, (b.w * scale).round() as usize, (b.h * scale).round() as usize);
+            let colors = vis::colors::map_for(&self.vis_colors(r.effect));
+            r.render(frame, &self.vis_context, (b.w * scale).round() as usize, (b.h * scale).round() as usize, colors.as_deref());
             self.el_mut(v, e).state.vis = Some(r);
             self.view_mut(v).invalidate_region(b);
         }

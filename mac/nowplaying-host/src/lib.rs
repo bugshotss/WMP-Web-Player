@@ -82,7 +82,11 @@ fn read_info(d: &NSDictionary<NSString, AnyObject>) -> serde_json::Map<String, s
             out.insert(name.into(), v.into());
         }
     }
-    for (key, name) in [("Duration", "duration"), ("ElapsedTime", "elapsed"), ("PlaybackRate", "rate")] {
+    // Shuffle: 1 off, 2 albums, 3 tracks. Repeat: 1 off, 2 the track, 3 the playlist. Only apps that
+    // support them report them.
+    for (key, name) in
+        [("Duration", "duration"), ("ElapsedTime", "elapsed"), ("PlaybackRate", "rate"), ("ShuffleMode", "shuffleMode"), ("RepeatMode", "repeatMode")]
+    {
         if let Some(v) = number(key) {
             out.insert(name.into(), v.into());
         }

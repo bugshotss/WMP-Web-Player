@@ -1,0 +1,54 @@
+# Runs the Mac app on a GitHub Mac and saves a picture of each of its windows (full mode, the Skin
+# Chooser, Get more skins, the menu-bar player, the screen saver, and a skin from archive.org), so the
+# Mac UI can be checked without a Mac at hand. Pictures and the log are in the run's artifacts.
+name: Mac snapshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      skin:
+        description: Part of the name of the archive.org skin to open (the first match)
+        default: Compact
+  push:
+    branches: ['mac-*']
+    paths: ['mac/**', '.github/workflows/mac-snapshots.yml']
+
+jobs:
+  snapshots:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: mac
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Fetch a skin from archive.org
+        env:
+          SKIN: ${{ inputs.skin || 'Compact' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/home/Skins"
+          curl -fsSL https://archive.org/metadata/windowsmediaplayerskinscollection/files -o "$RUNNER_TEMP/files.json"
+          NAME=$(python3 -c "import json,sys; f=[x['name'] for x in json.load(open(sys.argv[1]))['result'] if x['name'].lower().endswith('.wmz') and '/' not in x['name']]; p=[n for n in f if sys.argv[2].lower() in n.lower()]; print((p or f)[0])" "$RUNNER_TEMP/files.json" "$SKIN")
+          URL="https://archive.org/download/windowsmediaplayerskinscollection/$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$NAME")"
+          curl -fsSL -o "$RUNNER_TEMP/home/Skins/$NAME" "$URL"
+          echo "SKIN_FILE=$RUNNER_TEMP/home/Skins/$NAME" >> "$GITHUB_ENV"
+
+      - name: Snapshot the app's windows
+        env:
+          WEBSKIN_HOME: ${{ runner.temp }}/home
+          WEBSKIN_TESTSIGNAL: '1'
+        run: |
+          mkdir -p "$RUNNER_TEMP/snapshots"
+          perl -e 'alarm shift; exec @ARGV' 150 target/release/webskin --snapshot "$RUNNER_TEMP/snapshots" "$SKIN_FILE" || echo "exit code $?"
+          cp "$WEBSKIN_HOME/log.txt" "$RUNNER_TEMP/snapshots/" || true
+          cp "$WEBSKIN_HOME/settings.json" "$RUNNER_TEMP/snapshots/" || true
+          ls -la "$RUNNER_TEMP/snapshots"
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: mac-snapshots
+          path: ${{ runner.temp }}/snapshots
