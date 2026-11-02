@@ -234,6 +234,40 @@ Audio for the visualizers is captured with WASAPI loopback, so they react to eve
 - Log: `%LOCALAPPDATA%\WebSkinPlayer\log.txt`
 - The app itself: `%LOCALAPPDATA%\Programs\WebSkin Player`
 
+## Mac (preview)
+
+A native Mac version lives in `mac/`. It is a Rust port of the skin engine, for macOS 13 or later. The release zip is for Apple
+silicon; Intel Macs can build it from source.
+
+<p align="center">
+  <img src="docs/images/mac-compact.png" width="420" alt="The Compact skin running on a Mac, showing the paused Spotify track and its position">
+</p>
+
+- **Install:** download `WebSkinPlayer-<version>-mac.zip` from the [latest release](../../releases/latest), unzip it
+  and move **WebSkin Player** to Applications. It isn't notarized, so macOS blocks the first launch: open it once,
+  then go to **System Settings > Privacy & Security** and click **Open Anyway**. Then open a `.wmz` file, or pick one
+  when the app asks.
+- **What it follows:** whatever the Mac shows in Now Playing (Spotify, Music, or a browser tab playing SoundCloud
+  or YouTube). Play, pause, next, previous and seeking go back to that app.
+- **Volume and mute** work the Mac's output volume, because macOS has no per-app volume mixer.
+- **Visualizations:** Bars and Waves, Battery and Album Art, as on Windows, picked from the skin or from
+  **Visualizations** in its right-click menu. They listen to what the Mac plays, which needs macOS 14.2 or later: the
+  first time a skin shows one, macOS asks to let WebSkin Player record system audio. Nothing is recorded or saved. The
+  old WMP visualization plug-ins are Windows DLLs and can't run on a Mac.
+- **Not there yet:** full mode, the taskbar widget, the screen saver and visualization colours.
+- **WMP's own resources:** a few skins use strings, images or scripts from Windows' `wmploc.dll`. Copy
+  `wmploc.dll` (and `wmploc.dll.mui`, if you have it) from a Windows PC into
+  `~/Library/Application Support/WebSkin Player`. Without it those parts are missing and the skin carries on.
+- **Files:** settings, the log and `wmploc.dll` live in `~/Library/Application Support/WebSkin Player`.
+
+How it reads Now Playing: since macOS 15.4, only Apple's own programs may read it. The app starts
+`/usr/bin/perl`, which loads `libnowplaying_host.dylib` from the app and streams what's playing back as JSON
+lines. Commands don't need this, so the app sends them itself.
+
+**Building:** needs Rust (stable). `cd mac && ./build-app.sh` writes `mac/dist/WebSkin Player.app` and a zip.
+`cargo run --release -p webskin -- --test-skins <folder|file> <outDir>` is the same headless skin test as on
+Windows.
+
 ## Building
 
 Needs the .NET 10 SDK, and [Inno Setup](https://jrsoftware.org/isinfo.php) (6 or later) for the installer

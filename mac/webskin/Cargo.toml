@@ -1,0 +1,35 @@
+[package]
+name = "webskin"
+version = "0.2.6"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "webskin"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.23.1"
+cosmic-text = "0.19.0"
+dirs = "7.0.0"
+encoding_rs = "0.8.42"
+gif = "0.14"
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png"] }
+regex = "1.13.1"
+rquickjs = { version = "0.10", features = ["full"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+libc = "0.2.191"
+objc2 = "0.6.5"
+objc2-app-kit = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-core-graphics = "0.3.2"
+objc2-foundation = "0.3.2"
+objc2-quartz-core = "0.3.2"
