@@ -36,16 +36,22 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/home/Skins/$NAME" "$URL"
           echo "SKIN_FILE=$RUNNER_TEMP/home/Skins/$NAME" >> "$GITHUB_ENV"
 
+      - name: Fetch the latest release (for the update check)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/${{ github.repository }}/releases/latest" > "$RUNNER_TEMP/latest.json"
+
       - name: Snapshot the app's windows
         env:
           WEBSKIN_HOME: ${{ runner.temp }}/home
           WEBSKIN_TESTSIGNAL: '1'
-          # Pretend to be an old version, so the update check finds the latest release.
+          # Pretend to be an old version, so the update check finds the latest release (read from a file:
+          # GitHub's API often turns runners away without a token).
           WEBSKIN_VERSION: 0.2.0
-          WEBSKIN_UPDATES: https://api.github.com/repos/${{ github.repository }}/releases/latest
+          WEBSKIN_UPDATES: ${{ runner.temp }}/latest.json
         run: |
           mkdir -p "$RUNNER_TEMP/snapshots"
-          perl -e 'alarm shift; exec @ARGV' 180 target/release/webskin --snapshot "$RUNNER_TEMP/snapshots" "$SKIN_FILE" || echo "exit code $?"
+          perl -e 'alarm shift; exec @ARGV' 300 target/release/webskin --snapshot "$RUNNER_TEMP/snapshots" "$SKIN_FILE" || echo "exit code $?"
           cp "$WEBSKIN_HOME/log.txt" "$RUNNER_TEMP/snapshots/" || true
           cp "$WEBSKIN_HOME/settings.json" "$RUNNER_TEMP/snapshots/" || true
           ls -la "$RUNNER_TEMP/snapshots"

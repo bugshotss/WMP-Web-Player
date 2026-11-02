@@ -16,7 +16,8 @@ use std::time::Instant;
 struct Run {
     out: PathBuf,
     skin: Option<PathBuf>,
-    started: Option<Instant>,
+    /// When the current step became due to start counting its delay.
+    since: Option<Instant>,
     step: usize,
     report: String,
 }
@@ -28,13 +29,13 @@ thread_local! {
 /// Called from main before the app runs.
 pub fn configure(out: PathBuf, skin: Option<PathBuf>) {
     let _ = std::fs::create_dir_all(&out);
-    RUN.with(|r| *r.borrow_mut() = Some(Run { out, skin, started: None, step: 0, report: String::new() }));
+    RUN.with(|r| *r.borrow_mut() = Some(Run { out, skin, since: None, step: 0, report: String::new() }));
 }
 
 pub fn begin() {
     RUN.with(|r| {
         if let Some(r) = r.borrow_mut().as_mut() {
-            r.started = Some(Instant::now());
+            r.since = Some(Instant::now());
         }
     });
 }
@@ -97,46 +98,72 @@ fn save_window(window: &NSWindow, name: &str) {
     note(&format!("{name}: window level {}, visible {}", window.level(), window.isVisible()));
 }
 
-fn steps() -> Vec<(f64, fn())> {
+/// A step runs this long after the previous one finished; it returns false to be tried again next tick
+/// (waiting for something), giving up after a minute and a half.
+type Step = (f64, fn() -> bool);
+
+fn steps() -> Vec<Step> {
     vec![
-        (0.5, || run_command("fullmode")),
+        (0.5, || {
+            run_command("fullmode");
+            true
+        }),
         (5.0, || {
             if let Some(w) = full::window() {
                 save_window(&w, "full-now-playing");
             }
             note(&format!("update offered: {:?}", super::updater::available().map(|u| u.version)));
+            true
         }),
-        (5.2, || full::select(full::Tab::Skins)),
-        (10.0, || {
+        (0.2, || {
+            full::select(full::Tab::Skins);
+            true
+        }),
+        (5.0, || {
             if let Some(w) = full::window() {
                 save_window(&w, "full-skin-chooser");
             }
             note(&format!("chooser preview shown: {}", super::chooser::preview_ready()));
+            true
         }),
-        (10.2, || full::select(full::Tab::OnlineSkins)),
-        (40.0, || {
+        (0.2, || {
+            full::select(full::Tab::OnlineSkins);
+            true
+        }),
+        (1.0, super::chooser::online_loaded),
+        (8.0, || {
             if let Some(w) = full::window() {
                 save_window(&w, "full-get-more-skins");
             }
             note(&format!("archive.org list loaded: {}, preview shown: {}", super::chooser::online_loaded(), super::chooser::preview_ready()));
+            note(&format!("downloading and applying: {:?}", super::chooser::download_first()));
+            true
         }),
-        (40.2, || note(&format!("downloading and applying: {:?}", super::chooser::download_first()))),
-        (55.0, || {
+        (1.0, || super::mode() == super::Mode::Skin),
+        (4.0, || {
             note(&format!("after the download: mode {:?}, skin windows {}", super::mode(), super::skin_window_list().len()));
             for (v, w) in super::skin_window_list() {
                 save_window(&w, &format!("downloaded-skin-view-{v}"));
             }
+            run_command("fullmode");
+            true
         }),
-        (55.5, || run_command("fullmode")),
-        (56.0, || run_command("ontop")),
-        (56.5, || {
+        (0.5, || {
+            run_command("ontop");
+            true
+        }),
+        (0.5, || {
             if let Some(w) = full::window() {
                 note(&format!("always on top: full mode level {}", w.level()));
             }
             run_command("ontop");
+            true
         }),
-        (57.0, || run_command("menubarmode")),
-        (58.0, || {
+        (0.5, || {
+            run_command("menubarmode");
+            true
+        }),
+        (1.0, || {
             note(&format!("menu-bar player shown: {}, full mode shown: {}", widget::is_shown(), full::is_shown()));
             if let Some(v) = widget::header_view() {
                 save_view(&v, "menubar-player-menu");
@@ -144,29 +171,33 @@ fn steps() -> Vec<(f64, fn())> {
             if let Some(img) = widget::button_image() {
                 let _ = out_dir().map(|d| std::fs::write(d.join("menubar-item.tiff"), img));
             }
+            saver::start(true);
+            true
         }),
-        (58.2, || saver::start(true)),
-        (62.0, || {
+        (4.0, || {
             if let Some(w) = saver::first_window() {
                 save_window(&w, "screen-saver");
             }
             saver::stop(false);
-        }),
-        (62.5, || {
             let skin = RUN.with(|r| r.borrow().as_ref().and_then(|r| r.skin.clone()));
             if let Some(path) = skin {
                 super::open_skin_now(&path);
             }
+            run_command("ontop");
+            true
         }),
-        (63.0, || run_command("ontop")),
-        (66.0, || {
+        (4.0, || {
             for (v, w) in super::skin_window_list() {
                 save_window(&w, &format!("skin-view-{v}"));
             }
             note(&format!("mode {:?}, global visualization {:?}", super::mode(), super::global_vis()));
             run_command("ontop");
+            true
         }),
-        (66.5, finish),
+        (0.5, || {
+            finish();
+            true
+        }),
     ]
 }
 
@@ -181,16 +212,21 @@ pub fn tick() {
     let due = RUN.with(|r| {
         let r = r.borrow();
         let r = r.as_ref()?;
-        let t = r.started?.elapsed().as_secs_f64();
-        let list = steps();
-        list.get(r.step).filter(|(at, _)| t >= *at).map(|(_, f)| *f)
+        let waited = r.since?.elapsed().as_secs_f64();
+        let (delay, f) = *steps().get(r.step)?;
+        (waited >= delay).then_some((f, waited >= delay + 90.0))
     });
-    if let Some(step) = due {
+    let Some((step, overdue)) = due else { return };
+    let done = step();
+    if done || overdue {
+        if !done {
+            note(&format!("step {} gave up waiting", RUN.with(|r| r.borrow().as_ref().map_or(0, |r| r.step))));
+        }
         RUN.with(|r| {
             if let Some(r) = r.borrow_mut().as_mut() {
                 r.step += 1;
+                r.since = Some(Instant::now());
             }
         });
-        step();
     }
 }

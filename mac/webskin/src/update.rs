@@ -70,9 +70,14 @@ pub fn parse_release(json: &[u8], current: &str) -> Option<UpdateInfo> {
     })
 }
 
-/// Asks the feed (blocking: call it off the main thread).
+/// Asks the feed (blocking: call it off the main thread). A feed that isn't an https URL is read as a file
+/// (the WEBSKIN_UPDATES test hook).
 pub fn check(feed: &str, current: &str) -> Result<Option<UpdateInfo>, String> {
-    let json = crate::net::get(feed, &["Accept: application/vnd.github+json"], Duration::from_secs(20))?;
+    let json = if feed.starts_with("https://") {
+        crate::net::get(feed, &["Accept: application/vnd.github+json"], Duration::from_secs(20))?
+    } else {
+        std::fs::read(feed).map_err(|e| format!("{feed}: {e}"))?
+    };
     Ok(parse_release(&json, current))
 }
 

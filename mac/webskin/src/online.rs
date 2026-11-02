@@ -66,7 +66,8 @@ pub fn parse_listing(json: &[u8]) -> Vec<OnlineSkin> {
 
 /// Fetches the collection's listing (blocking: call it off the main thread).
 pub fn list() -> Result<Vec<OnlineSkin>, String> {
-    let json = crate::net::get(&format!("https://archive.org/metadata/{ITEM}/files"), &[], Duration::from_secs(30))?;
+    // archive.org can take its time over the listing.
+    let json = crate::net::get(&format!("https://archive.org/metadata/{ITEM}/files"), &[], Duration::from_secs(90))?;
     let list = parse_listing(&json);
     if list.is_empty() { Err("archive.org listed no skins".into()) } else { Ok(list) }
 }
