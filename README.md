@@ -322,7 +322,9 @@ git push origin v0.2.0
 ```
 
 The **Build** workflow (`.github/workflows/build.yml`) builds every push and pull request. For a `v*` tag it also
-publishes a GitHub release with the installer and zip attached. Builds made by the workflow know their repository and
+publishes a GitHub release with the installer and zip attached. A release can also be started from the repository's
+**Releases** page: **Draft a new release**, type a new tag such as `v0.4.0` (on `main`), tick **Set as a pre-release**
+for a beta, and publish; the workflow then builds the apps and attaches them to that release. Builds made by the workflow know their repository and
 check it for updates; local builds don't.
 
 ### Developer hooks
