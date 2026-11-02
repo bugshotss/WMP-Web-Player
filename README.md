@@ -243,10 +243,13 @@ silicon; Intel Macs can build it from source.
   <img src="docs/images/mac-compact.png" width="420" alt="The Compact skin running on a Mac, showing the paused Spotify track and its position">
 </p>
 
-- **Install:** download `WebSkinPlayer-<version>-mac.zip` from the [latest release](../../releases/latest), unzip it
-  and move **WebSkin Player** to Applications. It isn't notarized, so macOS blocks the first launch: open it once,
-  then go to **System Settings > Privacy & Security** and click **Open Anyway**. Then open a `.wmz` file, or pick one
-  when the app asks.
+- **Install:** the Mac version is in beta: download `WebSkinPlayer-<version>-mac.zip` from the newest pre-release on
+  the [releases page](../../releases), unzip it and move **WebSkin Player** to Applications. It isn't notarized, so
+  macOS blocks the first launch: open it once, then go to **System Settings > Privacy & Security** and click
+  **Open Anyway**. Then pick a skin from the **Skins** menu, open a `.wmz` file, or pick one when the app asks.
+- **Skins:** the **Skins** menu lists the skins in `~/Library/Application Support/WebSkin Player/Skins`, under their
+  first letter when there are more than 30. **Add Skins…** copies in skins, folders of them or a `.zip` of them
+  (ones already there are skipped), and **Show Skins Folder** opens it in Finder. **Open Skin…** starts there too.
 - **What it follows:** whatever the Mac shows in Now Playing (Spotify, Music, or a browser tab playing SoundCloud
   or YouTube). Play, pause, next, previous and seeking go back to that app.
 - **Volume and mute** work the Mac's output volume, because macOS has no per-app volume mixer.
@@ -258,7 +261,8 @@ silicon; Intel Macs can build it from source.
 - **WMP's own resources:** a few skins use strings, images or scripts from Windows' `wmploc.dll`. Copy
   `wmploc.dll` (and `wmploc.dll.mui`, if you have it) from a Windows PC into
   `~/Library/Application Support/WebSkin Player`. Without it those parts are missing and the skin carries on.
-- **Files:** settings, the log and `wmploc.dll` live in `~/Library/Application Support/WebSkin Player`.
+- **Files:** settings, the log, the `Skins` folder and `wmploc.dll` live in
+  `~/Library/Application Support/WebSkin Player`.
 
 How it reads Now Playing: since macOS 15.4, only Apple's own programs may read it. The app starts
 `/usr/bin/perl`, which loads `libnowplaying_host.dylib` from the app and streams what's playing back as JSON

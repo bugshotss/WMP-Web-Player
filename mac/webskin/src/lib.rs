@@ -1,6 +1,7 @@
 //! WebSkin Player for macOS: Windows Media Player skins for whatever the Mac is playing.
 
 mod images;
+mod library;
 mod package;
 mod player;
 mod render;

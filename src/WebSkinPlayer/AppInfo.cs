@@ -146,8 +146,12 @@ public static class UpdateChecker
         return http;
     }
 
+    /// <summary>A higher version, or the release of the beta (or CI build) running: 0.3.0 is newer than 0.3.0-beta.1.</summary>
     static bool IsNewer(string tag, string current) =>
-        System.Version.TryParse(Core(tag), out var latest) && System.Version.TryParse(Core(current), out var mine) && latest > mine;
+        System.Version.TryParse(Core(tag), out var latest) && System.Version.TryParse(Core(current), out var mine)
+        && (latest > mine || latest == mine && IsPrerelease(current) && !IsPrerelease(tag));
+
+    static bool IsPrerelease(string v) => v.Split('+')[0].Contains('-');
 
     static string Core(string v)
     {

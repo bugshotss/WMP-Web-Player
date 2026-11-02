@@ -13,7 +13,7 @@ use crate::vis::{Analyzer, AudioRing};
 use block2::RcBlock;
 use nowplaying::{NowPlaying, Source};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, ProtocolObject};
+use objc2::runtime::{AnyObject, ProtocolObject, Sel};
 use objc2::{AllocAnyThread, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAlert, NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSControlStateValueOff, NSControlStateValueOn, NSMenu, NSMenuItem,
@@ -32,6 +32,7 @@ use window::ViewWindow;
 enum Pending {
     ChooseSkin,
     Load(PathBuf),
+    AddSkins,
 }
 
 #[derive(Default)]
@@ -67,6 +68,10 @@ impl Audio {
 thread_local! {
     static APP: RefCell<AppState> = RefCell::default();
     static CHOSEN: Cell<Option<isize>> = const { Cell::new(None) };
+    /// The menu bar's Skins menu, the delegate its items call, and the library skins they open (by tag).
+    static SKINS_MENU: RefCell<Option<Retained<NSMenu>>> = const { RefCell::new(None) };
+    static DELEGATE: RefCell<Option<Retained<AppDelegate>>> = const { RefCell::new(None) };
+    static LIBRARY: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The open skin.
@@ -334,6 +339,25 @@ define_class!(
         fn open_skin(&self, _sender: Option<&AnyObject>) {
             push(Pending::ChooseSkin);
         }
+
+        #[unsafe(method(openLibrarySkin:))]
+        fn open_library_skin(&self, sender: &NSMenuItem) {
+            if let Some(path) = LIBRARY.with(|l| usize::try_from(sender.tag()).ok().and_then(|i| l.borrow().get(i).cloned())) {
+                push(Pending::Load(path));
+            }
+        }
+
+        #[unsafe(method(addSkins:))]
+        fn add_skins(&self, _sender: Option<&AnyObject>) {
+            push(Pending::AddSkins);
+        }
+
+        #[unsafe(method(showSkinsFolder:))]
+        fn show_skins_folder(&self, _sender: Option<&AnyObject>) {
+            let folder = crate::library::folder();
+            let _ = std::fs::create_dir_all(&folder);
+            NSWorkspace::sharedWorkspace().openURL(&file_url(&folder));
+        }
     }
 );
 
@@ -358,7 +382,66 @@ fn main_menu(mtm: MainThreadMarker, delegate: &AppDelegate) -> Retained<NSMenu> 
     app_menu.addItem(&item("Quit WebSkin Player", sel!(terminate:), "q"));
     app_item.setSubmenu(Some(&app_menu));
     bar.addItem(&app_item);
+
+    let skins_item = NSMenuItem::new(mtm);
+    let skins_menu = NSMenu::new(mtm);
+    skins_menu.setTitle(&NSString::from_str("Skins"));
+    skins_item.setSubmenu(Some(&skins_menu));
+    bar.addItem(&skins_item);
+    SKINS_MENU.with(|m| *m.borrow_mut() = Some(skins_menu));
     bar
+}
+
+fn file_url(path: &Path) -> Retained<NSURL> {
+    NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()))
+}
+
+fn menu_item(title: &str, action: Option<Sel>, tag: isize) -> Retained<NSMenuItem> {
+    let mtm = mtm();
+    let title = NSString::from_str(title);
+    let mi = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(mtm), &title, action, &NSString::new()) };
+    if let Some(delegate) = DELEGATE.with(|d| d.borrow().clone()) {
+        unsafe { mi.setTarget(Some(&delegate)) };
+    }
+    mi.setTag(tag);
+    mi
+}
+
+/// Fills the Skins menu from the library: every skin (under its first letter when there are many), then
+/// Add Skins… and Show Skins Folder.
+fn refresh_skins_menu() {
+    let mtm = mtm();
+    let Some(menu) = SKINS_MENU.with(|m| m.borrow().clone()) else { return };
+    let skins = crate::library::list(&crate::library::folder());
+    menu.removeAllItems();
+    if skins.is_empty() {
+        menu.addItem(&menu_item("No skins yet", None, 0));
+    }
+    let mut letters: Vec<(String, Retained<NSMenu>)> = Vec::new();
+    for (i, path) in skins.iter().enumerate() {
+        let name = crate::library::name(path);
+        let skin = menu_item(&name, Some(sel!(openLibrarySkin:)), i as isize);
+        if skins.len() <= 30 {
+            menu.addItem(&skin);
+            continue;
+        }
+        let letter = name.chars().next().filter(|c| c.is_alphabetic()).map_or_else(|| "#".to_string(), |c| c.to_uppercase().to_string());
+        if letters.last().is_none_or(|(l, _)| *l != letter) {
+            letters.push((letter, NSMenu::new(mtm)));
+        }
+        if let Some((_, sub)) = letters.last() {
+            sub.addItem(&skin);
+        }
+    }
+    for (letter, sub) in letters {
+        let header = menu_item(&letter, None, 0);
+        header.setSubmenu(Some(&sub));
+        menu.addItem(&header);
+    }
+    menu.addItem(&NSMenuItem::separatorItem(mtm));
+    menu.addItem(&menu_item("Add Skins…", Some(sel!(addSkins:)), 0));
+    menu.addItem(&menu_item("Show Skins Folder", Some(sel!(showSkinsFolder:)), 0));
+    LIBRARY.with(|l| *l.borrow_mut() = skins);
 }
 
 fn start() {
@@ -376,6 +459,7 @@ fn tick() {
         match p {
             Pending::ChooseSkin => choose_skin(),
             Pending::Load(path) => load_skin(&path),
+            Pending::AddSkins => add_skins(),
         }
     }
     let Some(shared) = current() else { return };
@@ -404,6 +488,10 @@ fn choose_skin() {
     panel.setMessage(Some(&NSString::from_str("Choose a Windows Media Player skin (.wmz or .wms)")));
     #[allow(deprecated)]
     panel.setAllowedFileTypes(Some(&NSArray::from_retained_slice(&[NSString::from_str("wmz"), NSString::from_str("wms")])));
+    let library = crate::library::folder();
+    if library.is_dir() {
+        panel.setDirectoryURL(Some(&file_url(&library)));
+    }
     NSApplication::sharedApplication(mtm).activate();
     let chosen = (panel.runModal() == objc2_app_kit::NSModalResponseOK)
         .then(|| panel.URL())
@@ -415,6 +503,32 @@ fn choose_skin() {
         None if current().is_none() => quit(),
         None => {}
     }
+}
+
+/// Add Skins…: skins, folders of them and .zip files of them go into the library.
+fn add_skins() {
+    let mtm = mtm();
+    let panel = NSOpenPanel::openPanel(mtm);
+    panel.setCanChooseFiles(true);
+    panel.setCanChooseDirectories(true);
+    panel.setAllowsMultipleSelection(true);
+    panel.setMessage(Some(&NSString::from_str("Choose skins (.wmz), folders of skins, or .zip files of them")));
+    NSApplication::sharedApplication(mtm).activate();
+    if panel.runModal() != objc2_app_kit::NSModalResponseOK {
+        return;
+    }
+    let library = crate::library::folder();
+    let mut added = 0;
+    for path in panel.URLs().iter().filter_map(|u| u.path()).map(|p| PathBuf::from(p.to_string())) {
+        match crate::library::import(&path, &library) {
+            Ok(n) => added += n,
+            Err(e) => crate::log(&format!("Adding skins from {} failed: {e}", path.display())),
+        }
+    }
+    crate::log(&format!("Added {added} skins to the library"));
+    refresh_skins_menu();
+    let plural = if added == 1 { "" } else { "s" };
+    MacHost.message_box("Skins added", &format!("{added} skin{plural} added to the Skins menu."));
 }
 
 fn load_skin(path: &Path) {
@@ -450,8 +564,10 @@ pub fn run(skin: Option<PathBuf>) {
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
     let delegate = AppDelegate::new(mtm);
+    DELEGATE.with(|d| *d.borrow_mut() = Some(delegate.clone()));
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.setMainMenu(Some(&main_menu(mtm, &delegate)));
+    refresh_skins_menu();
     app.activate();
     app.run();
 }

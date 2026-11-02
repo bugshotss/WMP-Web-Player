@@ -1399,7 +1399,7 @@ dependencies = [
 
 [[package]]
 name = "webskin"
-version = "0.2.6"
+version = "0.3.0"
 dependencies = [
  "base64",
  "block2",
