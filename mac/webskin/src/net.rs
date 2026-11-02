@@ -132,12 +132,16 @@ fn fetch(url: &str, dest: &Path, bytes: &AtomicU64, cancel: &AtomicBool, check: 
     result
 }
 
-/// A zip (a .wmz skin, an app update): anything else is an error page or a broken transfer.
+/// A zip (a .wmz skin, an app update): anything else is an error page or a broken transfer. Some skins in
+/// the archive.org collection have a damaged first header (WMP, and the engine, read them anyway), so a zip
+/// is also one whose end-of-directory record is there.
 pub fn check_zip(path: &Path) -> Result<(), String> {
-    let mut sig = [0u8; 2];
-    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    std::io::Read::read_exact(&mut f, &mut sig).map_err(|_| "the download is empty".to_string())?;
-    if &sig == b"PK" { Ok(()) } else { Err("the download isn't a skin or zip file".into()) }
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    if bytes.is_empty() {
+        return Err("the download is empty".into());
+    }
+    let tail = &bytes[bytes.len().saturating_sub(65_557)..];
+    if bytes.starts_with(b"PK") || tail.windows(4).any(|w| w == b"PK\x05\x06") { Ok(()) } else { Err("the download isn't a skin or zip file".into()) }
 }
 
 /// The SHA-256 of a file, as lower-case hex (through the system's shasum).
@@ -157,8 +161,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.wmz"), b"PK\x03\x04rest").unwrap();
         std::fs::write(dir.join("b.wmz"), b"<html>404</html>").unwrap();
+        // A damaged first header, as Need for Speed Underground has, with the directory's end intact.
+        std::fs::write(dir.join("c.wmz"), b"\x01\x00\x01\x00\x14\x00 data PK\x05\x06\x00\x00").unwrap();
+        std::fs::write(dir.join("d.wmz"), b"").unwrap();
         assert!(check_zip(&dir.join("a.wmz")).is_ok());
         assert!(check_zip(&dir.join("b.wmz")).is_err());
+        assert!(check_zip(&dir.join("c.wmz")).is_ok());
+        assert!(check_zip(&dir.join("d.wmz")).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 }
